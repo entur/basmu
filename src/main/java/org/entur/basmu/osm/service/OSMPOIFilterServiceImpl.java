@@ -1,7 +1,7 @@
 package org.entur.basmu.osm.service;
 
-import no.entur.kakka.domain.OSMPOIFilter;
-import no.entur.kakka.repository.OSMPOIFilterRepository;
+import org.entur.basmu.osm.domain.OSMPOIFilter;
+import org.entur.basmu.osm.repository.OSMPOIFilterRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;

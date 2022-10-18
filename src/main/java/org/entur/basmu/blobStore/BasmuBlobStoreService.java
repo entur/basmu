@@ -7,18 +7,18 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
-public class BalhutBlobStoreService extends BlobStoreService {
+public class BasmuBlobStoreService extends BlobStoreService {
 
     @Value("${blobstore.gcs.haya.bucket.name:haya-dev}")
     private String targetBucketName;
 
-    @Value("${blobstore.gcs.haya.latest.filename_without_extension:balhut_latest}")
+    @Value("${blobstore.gcs.haya.latest.filename_without_extension:basmu_latest}")
     private String targetFilename;
 
     @Value("${blobstore.gcs.haya.import.folder:import}")
     private String targetFolder;
 
-    public BalhutBlobStoreService(
+    public BasmuBlobStoreService(
             @Value("${blobstore.gcs.basmu.bucket.name:basmu-dev}") String bucketName,
             @Autowired BlobStoreRepository repository) {
         super(bucketName, repository);

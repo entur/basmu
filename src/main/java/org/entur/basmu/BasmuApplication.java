@@ -7,14 +7,14 @@ import org.springframework.context.annotation.Bean;
 
 @SpringBootApplication
 @EnableTask
-public class BalhutApplication {
+public class BasmuApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(BalhutApplication.class, args);
+        SpringApplication.run(BasmuApplication.class, args);
     }
 
     @Bean
-    public BalhutTaskListener taskExecutionListener() {
-        return new BalhutTaskListener();
+    public BasmuTaskListener taskExecutionListener() {
+        return new BasmuTaskListener();
     }
 }

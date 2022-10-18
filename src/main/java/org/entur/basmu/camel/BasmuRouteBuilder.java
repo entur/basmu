@@ -1,11 +1,7 @@
 package org.entur.basmu.camel;
 
 import org.apache.camel.Exchange;
-import org.entur.basmu.addresses.PeliasDocumentMapper;
-import org.entur.basmu.addresses.StreetMapper;
-import org.entur.basmu.addresses.kartverket.KartverketAddress;
-import org.entur.basmu.addresses.kartverket.KartverketAddressReader;
-import org.entur.basmu.blobStore.BalhutBlobStoreService;
+import org.entur.basmu.blobStore.BasmuBlobStoreService;
 import org.entur.basmu.blobStore.KakkaBlobStoreService;
 import org.entur.geocoder.Utilities;
 import org.entur.geocoder.ZipUtilities;
@@ -25,9 +21,9 @@ import java.util.List;
 import java.util.stream.Stream;
 
 @Component
-public class BalhutRouteBuilder extends ErrorHandlerRouteBuilder {
+public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
 
-    private static final Logger logger = LoggerFactory.getLogger(BalhutRouteBuilder.class);
+    private static final Logger logger = LoggerFactory.getLogger(BasmuRouteBuilder.class);
 
     private static final String OUTPUT_FILENAME_HEADER = "balhutOutputFilename";
 
@@ -35,16 +31,16 @@ public class BalhutRouteBuilder extends ErrorHandlerRouteBuilder {
     private String kartverketAddressesFolder;
 
     @Value("${basmu.workdir:/tmp/basmu/geocoder}")
-    private String balhutWorkDir;
+    private String basmuWorkDir;
 
     private final KakkaBlobStoreService kakkaBlobStoreService;
-    private final BalhutBlobStoreService balhutBlobStoreService;
+    private final BasmuBlobStoreService basmuBlobStoreService;
     private final PeliasDocumentMapper addressMapper;
     private final StreetMapper streetMapper;
 
-    public BalhutRouteBuilder(
+    public BasmuRouteBuilder(
             KakkaBlobStoreService kakkaBlobStoreService,
-            BalhutBlobStoreService balhutBlobStoreService,
+            BasmuBlobStoreService balhutBlobStoreService,
             PeliasDocumentMapper addressMapper,
             StreetMapper streetMapper,
             @Value("${basmu.camel.redelivery.max:3}") int maxRedelivery,
@@ -53,7 +49,7 @@ public class BalhutRouteBuilder extends ErrorHandlerRouteBuilder {
 
         super(maxRedelivery, redeliveryDelay, backOffMultiplier);
         this.kakkaBlobStoreService = kakkaBlobStoreService;
-        this.balhutBlobStoreService = balhutBlobStoreService;
+        this.basmuBlobStoreService = balhutBlobStoreService;
         this.addressMapper = addressMapper;
         this.streetMapper = streetMapper;
     }
@@ -86,13 +82,13 @@ public class BalhutRouteBuilder extends ErrorHandlerRouteBuilder {
         logger.debug("Unzipping addresses file");
         ZipUtilities.unzipFile(
                 exchange.getIn().getBody(InputStream.class),
-                balhutWorkDir + "/addresses"
+                basmuWorkDir + "/addresses"
         );
     }
 
     private void readAddressesCSVFile(Exchange exchange) {
         logger.debug("Read addresses CSV file");
-        try (Stream<Path> paths = Files.walk(Paths.get(balhutWorkDir + "/addresses"))) {
+        try (Stream<Path> paths = Files.walk(Paths.get(basmuWorkDir + "/addresses"))) {
             paths.filter(Utilities::isValidFile).findFirst().ifPresent(path -> {
                 exchange.getIn().setBody(KartverketAddressReader.read(path));
             });
@@ -153,7 +149,7 @@ public class BalhutRouteBuilder extends ErrorHandlerRouteBuilder {
 
     private void uploadCSVFile(Exchange exchange) {
         logger.debug("Uploading the CSV file");
-        balhutBlobStoreService.uploadBlob(
+        basmuBlobStoreService.uploadBlob(
                 exchange.getIn().getHeader(OUTPUT_FILENAME_HEADER, String.class) + ".zip",
                 exchange.getIn().getBody(InputStream.class)
         );
@@ -162,6 +158,6 @@ public class BalhutRouteBuilder extends ErrorHandlerRouteBuilder {
     private void copyCSVFileAsLatestToConfiguredBucket(Exchange exchange) {
         logger.debug("Coping latest file to haya");
         String currentCSVFileName = exchange.getIn().getHeader(OUTPUT_FILENAME_HEADER, String.class) + ".zip";
-        balhutBlobStoreService.copyBlobAsLatestToTargetBucket(currentCSVFileName);
+        basmuBlobStoreService.copyBlobAsLatestToTargetBucket(currentCSVFileName);
     }
 }

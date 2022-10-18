@@ -8,13 +8,13 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
 @Component
-public class BalhutTask implements CommandLineRunner {
+public class BasmuTask implements CommandLineRunner {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(BalhutTask.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(BasmuTask.class);
 
     private final CamelContext camelContext;
 
-    public BalhutTask(CamelContext camelContext) {
+    public BasmuTask(CamelContext camelContext) {
         this.camelContext = camelContext;
     }
 

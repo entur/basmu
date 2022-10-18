@@ -9,9 +9,9 @@ import org.springframework.cloud.task.repository.TaskExecution;
 import org.springframework.stereotype.Component;
 
 @Component
-public class BalhutTaskListener {
+public class BasmuTaskListener {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(BalhutTaskListener.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(BasmuTaskListener.class);
 
     @BeforeTask
     public void beforeTask(TaskExecution taskExecution) {
