@@ -1,0 +1,13 @@
+apiVersion: v2
+appVersion: "0.0.1"
+description: Addresses converter
+name: basmu
+version: 0.1.0
+keywords:
+  - basmu
+sources:
+  - https://github.com/entur/basmu
+maintainers:
+  - name: 'team-ror'
+    email: team.rutedata@entur.org
+engine: gotpl

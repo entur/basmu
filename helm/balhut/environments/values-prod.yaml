@@ -1,0 +1,8 @@
+env: production
+replicas: 1
+
+gcs:
+  kakka:
+    bucketName: kakka-production
+  haya:
+    bucketName: ent-gcs-haya-prd-001

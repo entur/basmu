@@ -1,0 +1,17 @@
+image:
+  identifier: ${artifact.metadata.image}
+  imagePullPolicy: Always
+
+resources:
+  cpuLimit: "4"
+  memLimit: 11264Mi
+  cpuRequest: "3"
+  memRequest: 10240Mi
+  xmx: 10g
+
+service:
+  http:
+    internalPort: 8080
+
+basmu:
+  schedule: 0 0 * * *
