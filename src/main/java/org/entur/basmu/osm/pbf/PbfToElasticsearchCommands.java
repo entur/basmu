@@ -35,7 +35,6 @@ public class PbfToElasticsearchCommands {
 
     private final List<String> poiFilter;
 
-
     public PbfToElasticsearchCommands(@Autowired OSMPOIFilterService osmpoiFilterService,
                                       @Value("${pelias.poi.boost:1}") long poiBoost,
                                       @Value("#{'${pelias.poi.filter:}'.split(',')}") List<String> poiFilter) {
@@ -50,14 +49,18 @@ public class PbfToElasticsearchCommands {
         }
     }
 
-    public Collection<PeliasDocument> transform(InputStream poiStream) throws IOException {
-        List<OSMPOIFilter> osmPoiFilter = osmpoiFilterService.getFilters();
-        File tmpPoiFile = getFile(poiStream);
-        var reader = new PbfTopographicPlaceReader(osmPoiFilter, IanaCountryTldEnumeration.NO, tmpPoiFile);
-        BlockingQueue<TopographicPlace> queue = new LinkedBlockingDeque<>();
-        reader.addToQueue(queue);
-        List<TopographicPlace> topographicPlaceList = new ArrayList<>(queue);
-        return new ArrayList<>(addTopographicPlaceCommands(topographicPlaceList));
+    public Collection<PeliasDocument> transform(InputStream poiStream) {
+        try {
+            List<OSMPOIFilter> osmPoiFilter = osmpoiFilterService.getFilters();
+            File tmpPoiFile = getFile(poiStream);
+            var reader = new PbfTopographicPlaceReader(osmPoiFilter, IanaCountryTldEnumeration.NO, tmpPoiFile);
+            BlockingQueue<TopographicPlace> queue = new LinkedBlockingDeque<>();
+            reader.addToQueue(queue);
+            List<TopographicPlace> topographicPlaceList = new ArrayList<>(queue);
+            return new ArrayList<>(addTopographicPlaceCommands(topographicPlaceList));
+        } catch (Exception ex) {
+            throw new RuntimeException(ex);
+        }
     }
 
     private File getFile(InputStream poiStream) throws IOException {
@@ -74,27 +77,15 @@ public class PbfToElasticsearchCommands {
 
             TopographicPlaceToPeliasMapper mapper = new TopographicPlaceToPeliasMapper(poiBoost, poiFilter, osmpoiFilterService.getFilters());
             final List<PeliasDocument> collect = places.stream()
-                    .map(mapper::toPeliasDocuments)
+                    .map(mapper::toPeliasDocumentsForNames)
                     .flatMap(Collection::stream)
-                    .sorted(new PeliasDocumentPopularityComparator())
-                    .filter(Objects::nonNull)
-                    .map(ElasticsearchCommand::peliasIndexCommand)
-                    .collect(Collectors.toList());
+                    .sorted((p1, p2) -> -p1.getPopularity().compareTo(p2.getPopularity()))
+                    .toList();
+
             logger.info("Total topographical places mapped forElasticsearchCommand: {}", collect.size());
             return collect;
         }
         return new ArrayList<>();
     }
-
-    private static class PeliasDocumentPopularityComparator implements Comparator<PeliasDocument> {
-
-        @Override
-        public int compare(PeliasDocument o1, PeliasDocument o2) {
-            Long p1 = o1 == null || o1.getPopularity() == null ? 1L : o1.getPopularity();
-            Long p2 = o2 == null || o2.getPopularity() == null ? 1L : o2.getPopularity();
-            return -p1.compareTo(p2);
-        }
-    }
-
 }
 

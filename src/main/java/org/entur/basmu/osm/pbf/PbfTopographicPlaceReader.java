@@ -21,7 +21,6 @@ import org.entur.basmu.osm.BinaryOpenStreetMapParser;
 import org.entur.basmu.osm.OpenStreetMapContentHandler;
 import org.entur.basmu.osm.domain.OSMPOIFilter;
 import org.rutebanken.netex.model.IanaCountryTldEnumeration;
-import org.rutebanken.netex.model.MultilingualString;
 import org.rutebanken.netex.model.TopographicPlace;
 
 import java.io.File;
@@ -35,34 +34,21 @@ import java.util.concurrent.BlockingQueue;
  */
 public class PbfTopographicPlaceReader implements TopographicPlaceReader {
 
-    private static final String LANGUAGE = "en";
-    private static final String PARTICIPANT_REF = "OSM";
     private final File[] files;
-    private final List<OSMPOIFilter> osmpoiFilters;
+    private final List<OSMPOIFilter> osmPoiFilters;
     private final IanaCountryTldEnumeration countryRef;
 
-    public PbfTopographicPlaceReader(List<OSMPOIFilter> osmpoiFilters, IanaCountryTldEnumeration countryRef, File... files) {
+    public PbfTopographicPlaceReader(List<OSMPOIFilter> osmPoiFilters, IanaCountryTldEnumeration countryRef, File... files) {
         this.files = files;
-        this.osmpoiFilters = osmpoiFilters;
+        this.osmPoiFilters = osmPoiFilters;
         this.countryRef = countryRef;
-    }
-
-    @Override
-    public String getParticipantRef() {
-        return PARTICIPANT_REF;
-    }
-
-    @Override
-    public MultilingualString getDescription() {
-        return new MultilingualString().withLang(LANGUAGE).withValue("Kartverket administrative units");
     }
 
     @Override
     public void addToQueue(BlockingQueue<TopographicPlace> queue) throws IOException {
         for (File file : files) {
-            OpenStreetMapContentHandler contentHandler = new TopographicPlaceOsmContentHandler(queue, osmpoiFilters, PARTICIPANT_REF, countryRef);
+            OpenStreetMapContentHandler contentHandler = new TopographicPlaceOsmContentHandler(queue, osmPoiFilters, countryRef);
             BinaryOpenStreetMapParser parser = new BinaryOpenStreetMapParser(contentHandler);
-
 
             //Parse relations to collect ways first
             parser.setParseWays(false);

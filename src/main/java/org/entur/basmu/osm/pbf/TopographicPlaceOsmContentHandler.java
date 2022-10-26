@@ -17,20 +17,17 @@
 package org.entur.basmu.osm.pbf;
 
 import com.google.common.collect.ArrayListMultimap;
-import net.opengis.gml._3.PolygonType;
 import org.entur.basmu.osm.OpenStreetMapContentHandler;
 import org.entur.basmu.osm.domain.OSMPOIFilter;
+import org.entur.basmu.osm.mapper.TopographicPlaceMapper;
 import org.entur.basmu.osm.model.*;
-import org.entur.basmu.osm.util.NetexGeoUtil;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
 import org.rutebanken.netex.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.stream.Collectors;
@@ -38,83 +35,89 @@ import java.util.stream.Collectors;
 /**
  * Map OSM nodes and ways to Netex topographic place.
  * <p>
- * Ways refer to nodes for coordinates. Because of this files must be parsed twice,
- * first to collect nodes ids referred by relevant ways and then to map relevant nodes and ways.
+ * Ways refer to nodes for coordinates. Because of this, files must be parsed twice,
+ * first to collect node ids referred by relevant ways and then to map relevant nodes and ways.
  */
 public class TopographicPlaceOsmContentHandler implements OpenStreetMapContentHandler {
     private static final Logger logger = LoggerFactory.getLogger(TopographicPlaceOsmContentHandler.class);
-    private static final String TAG_NAME = "name";
     private static final double MINIMUM_DISTANCE = 0.0002; // Minimum distance between outer polygons/rings in a relations, distance unit is min/sec
     private final BlockingQueue<TopographicPlace> topographicPlaceQueue;
     private final List<OSMPOIFilter> osmPoiFilters;
-    private final String participantRef;
     private final IanaCountryTldEnumeration countryRef;
-    private final Map<Long, OSMNode> nodes = new HashMap<>();
+    private final Map<Long, OSMNode> nodesMapForWays = new HashMap<>();
 
-    private final Set<Long> nodeRefsUsedInWays = new HashSet<>();
+    private final Set<Long> nodeRefsForWays = new HashSet<>();
+    private final Set<Long> nodeRefsForMultipolygonRelations = new HashSet<>();
+    private final Set<Long> wayRefsForMultipolygonRelations = new HashSet<>();
 
-    private final Set<Long> nodeRefsUsedInRel = new HashSet<>();
-
-    private final Set<Long> relationWayIds = new HashSet<>();
-
-    private final Map<Long, OSMRelation> relationsById = new HashMap<>();
-    private final Map<Long, OSMWay> waysById = new HashMap<>();
-    private final Map<Long, OSMNode> nodesById = new HashMap<>();
+    private final Map<Long, OSMRelation> multiPolygonRelationsMap = new HashMap<>();
+    private final Map<Long, OSMWay> waysMapForMultipolygonRelations = new HashMap<>();
+    private final Map<Long, OSMNode> nodesMapForMultipolygonRelations = new HashMap<>();
 
     private boolean gatherNodesUsedInWaysPhase = true;
 
     public TopographicPlaceOsmContentHandler(BlockingQueue<TopographicPlace> topographicPlaceQueue,
                                              List<OSMPOIFilter> osmPoiFilters,
-                                             String participantRef,
                                              IanaCountryTldEnumeration countryRef) {
         this.topographicPlaceQueue = topographicPlaceQueue;
         this.osmPoiFilters = osmPoiFilters;
-        this.participantRef = participantRef;
         this.countryRef = countryRef;
     }
 
+    @Override
+    public void doneSecondPhaseWays() {
+        gatherNodesUsedInWaysPhase = false;
+    }
+
+    @Override
+    public void doneThirdPhaseNodes() {
+        processMultipolygonRelations();
+    }
 
     @Override
     public void addNode(OSMNode osmNode) {
         if (matchesFilter(osmNode)) {
-            TopographicPlace topographicPlace = map(osmNode).withCentroid(toCentroid(osmNode.lat, osmNode.lon));
+            TopographicPlace topographicPlace = TopographicPlaceMapper.map(osmNode, countryRef)
+                    .withCentroid(TopographicPlaceMapper.toCentroid(osmNode.lat, osmNode.lon));
             topographicPlaceQueue.add(topographicPlace);
         }
 
-        if (nodeRefsUsedInWays.contains(osmNode.getId())) {
-            nodes.put(osmNode.getId(), osmNode);
+        if (nodeRefsForWays.contains(osmNode.getId())) {
+            nodesMapForWays.put(osmNode.getId(), osmNode);
         }
 
-        if (nodesById.containsKey(osmNode.getId())) {
+        if (nodesMapForMultipolygonRelations.containsKey(osmNode.getId())) {
             return;
         }
 
-        if (nodeRefsUsedInRel.contains(osmNode.getId())) {
-            nodesById.put(osmNode.getId(), osmNode);
-        }
-
-        if (nodesById.size() % 100000 == 0) {
-            logger.debug(String.format("nodes=%d", nodesById.size()));
+        if (nodeRefsForMultipolygonRelations.contains(osmNode.getId())) {
+            nodesMapForMultipolygonRelations.put(osmNode.getId(), osmNode);
         }
     }
 
     @Override
     public void addWay(OSMWay osmWay) {
         var wayId = osmWay.getId();
-        if (waysById.containsKey(wayId)) {
+        if (waysMapForMultipolygonRelations.containsKey(wayId)) {
             return;
         }
-        if (relationWayIds.contains(wayId)) {
-            waysById.put(wayId, osmWay);
-            nodeRefsUsedInRel.addAll(osmWay.getNodeRefs());
+
+        // TODO: I think, this needs to be done only when gatherNodesUsedInWaysPhase = true
+        if (wayRefsForMultipolygonRelations.contains(wayId)) {
+            if (!gatherNodesUsedInWaysPhase) {
+                logger.debug("waysById = " + waysMapForMultipolygonRelations.containsKey(wayId) + " nodeRefsUsedInRel = " + nodeRefsForMultipolygonRelations.containsAll(osmWay.getNodeRefs()));
+            }
+            waysMapForMultipolygonRelations.put(wayId, osmWay);
+            nodeRefsForMultipolygonRelations.addAll(osmWay.getNodeRefs());
         }
 
         if (matchesFilter(osmWay)) {
             if (gatherNodesUsedInWaysPhase) {
-                nodeRefsUsedInWays.addAll(osmWay.getNodeRefs());
+                nodeRefsForWays.addAll(osmWay.getNodeRefs());
             } else {
-                TopographicPlace topographicPlace = map(osmWay);
-                if (addGeometry(osmWay, topographicPlace)) {
+                SimplePoint_VersionStructure centroid = getCentroid(osmWay);
+                if (centroid != null) {
+                    TopographicPlace topographicPlace = TopographicPlaceMapper.map(osmWay, countryRef).withCentroid(centroid);
                     topographicPlaceQueue.add(topographicPlace);
                 }
             }
@@ -123,21 +126,23 @@ public class TopographicPlaceOsmContentHandler implements OpenStreetMapContentHa
 
     @Override
     public void addRelation(OSMRelation osmRelation) {
-        if (!relationsById.containsKey(osmRelation.getId()) && osmRelation.isTag("type", "multipolygon") && matchesFilter(osmRelation)) {
+        if (!multiPolygonRelationsMap.containsKey(osmRelation.getId())
+                && osmRelation.isTag("type", "multipolygon")
+                && matchesFilter(osmRelation)) {
             var members = osmRelation.getMembers();
             members.forEach(member -> {
                 if (member.getType().equals("way")) {
-                    relationWayIds.add(member.getRef());
+                    wayRefsForMultipolygonRelations.add(member.getRef());
                 }
             });
-            relationsById.put(osmRelation.getId(), osmRelation);
+            multiPolygonRelationsMap.put(osmRelation.getId(), osmRelation);
         }
     }
 
-    private boolean addGeometry(OSMWay osmWay, TopographicPlace topographicPlace) {
+    private SimplePoint_VersionStructure getCentroid(OSMWay osmWay) {
         List<Coordinate> coordinates = new ArrayList<>();
         for (Long nodeRef : osmWay.getNodeRefs()) {
-            OSMNode node = nodes.get(nodeRef);
+            OSMNode node = nodesMapForWays.get(nodeRef);
             if (node != null) {
                 coordinates.add(new Coordinate(node.lon, node.lat));
             }
@@ -145,48 +150,83 @@ public class TopographicPlaceOsmContentHandler implements OpenStreetMapContentHa
 
         if (coordinates.size() != osmWay.getNodeRefs().size()) {
             logger.info("Ignoring osmWay with missing nodes: " + osmWay.getAssumedName());
-            return false;
+            return null;
         }
-        topographicPlace.withCentroid(toCentroid(coordinates));
+        return TopographicPlaceMapper.toCentroid(coordinates);
+
+        /* TODO: Polygon is not needed
         try {
-            topographicPlace.withPolygon(toPolygon(coordinates, participantRef + "-" + osmWay.getId()));
+            topographicPlace.withPolygon(TopographicPlaceMapper.toPolygon(coordinates, osmWay.getId()));
         } catch (RuntimeException e) {
             logger.info("Could not create polygon for osm way: " + osmWay.getAssumedName() + ". Exception: " + e.getMessage());
-        }
-        return true;
+        }*/
     }
 
-    private boolean addGeometry(ArrayList<OSMWay> innerWays, ArrayList<OSMWay> outerWays, TopographicPlace topographicPlace) {
+    private void processMultipolygonRelations() {
+        var counter = 0;
+        for (OSMRelation relation : multiPolygonRelationsMap.values()) {
+
+            // TODO: This if check is not needed as this condition is already satisfied in addRelation
+            if (relation.isTag("type", "multipolygon") && matchesFilter(relation)) {
+
+                var innerWaysOfMultipolygonRelation = new ArrayList<OSMWay>();
+                var outerWaysOfMultipolygonRelation = new ArrayList<OSMWay>();
+
+                for (OSMRelationMember member : relation.getMembers()) {
+                    final String role = member.getRole();
+                    final OSMWay way = waysMapForMultipolygonRelations.get(member.getRef());
+
+                    if (way != null) {
+                        if (role.equals("inner")) {
+                            innerWaysOfMultipolygonRelation.add(way);
+                        } else if (role.equals("outer")) {
+                            outerWaysOfMultipolygonRelation.add(way);
+                        } else {
+                            logger.warn("Unexpected role " + role + " in multipolygon");
+                        }
+                    }
+                }
+                SimplePoint_VersionStructure centroid = getCentroid(innerWaysOfMultipolygonRelation, outerWaysOfMultipolygonRelation);
+                if (centroid != null) {
+                    var topographicPlace = TopographicPlaceMapper.map(relation, countryRef).withCentroid(centroid);
+                    topographicPlaceQueue.add(topographicPlace);
+                    counter++;
+                }
+            }
+        }
+        logger.info("Total {} multipolygon POIs added.", counter);
+    }
+
+    private SimplePoint_VersionStructure getCentroid(ArrayList<OSMWay> innerWaysOfMultipolygonRelation,
+                                                     ArrayList<OSMWay> outerWaysOfMultipolygonRelation) {
+
         List<Polygon> polygons = new ArrayList<>();
 
-
-        final List<List<Long>> outerRingNodes = constructRings(outerWays);
-        final List<List<Long>> innerRingNodes = constructRings(innerWays);
+        final List<List<Long>> outerRingNodes = constructRings(outerWaysOfMultipolygonRelation);
+        final List<List<Long>> innerRingNodes = constructRings(innerWaysOfMultipolygonRelation);
 
         var outerPolygons = outerRingNodes.stream()
-                .map(ring -> new Ring(ring, nodesById).getPolygon())
+                .map(ring -> new Ring(ring, nodesMapForMultipolygonRelations).getPolygon())
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
         var innerPolygons = innerRingNodes.stream()
-                .map(ring -> new Ring(ring, nodesById).getPolygon())
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+                .map(ring -> new Ring(ring, nodesMapForMultipolygonRelations).getPolygon())
+                .filter(Objects::nonNull).toList();
 
         if (!outerPolygons.isEmpty() && !checkPolygonProximity(outerPolygons)) {
             polygons.addAll(outerPolygons);
             polygons.addAll(innerPolygons);
 
             try {
-                var multiPolygon = new GeometryFactory().createMultiPolygon(polygons.toArray(new Polygon[polygons.size()]));
+                var multiPolygon = new GeometryFactory().createMultiPolygon(polygons.toArray(new Polygon[0]));
                 var interiorPoint = multiPolygon.getInteriorPoint();
-                topographicPlace.withCentroid(toCentroid(interiorPoint.getY(), interiorPoint.getX()));
-                return true;
+                return TopographicPlaceMapper.toCentroid(interiorPoint.getY(), interiorPoint.getX());
             } catch (RuntimeException e) {
                 logger.warn("unable to add geometry" + e);
-                return false;
+                return null;
             }
         }
-        return false;
+        return null;
     }
 
     private boolean checkPolygonProximity(List<Polygon> outerPolygons) {
@@ -220,28 +260,31 @@ public class TopographicPlaceOsmContentHandler implements OpenStreetMapContentHa
             var start = refs.get(0);
             var end = refs.get(refs.size() - 1);
 
+            // This way is a Closed Ring
             if (start.equals(end)) {
                 ArrayList<Long> ring = new ArrayList<>(refs);
                 closedRings.add(ring);
+                // This way is not a Closed ring
             } else {
                 waysByEndpoint.put(start, way);
                 waysByEndpoint.put(end, way);
             }
         }
 
-        //check impossible cases
+        // No non Closed rings found. Return Closed rings
+        if (waysByEndpoint.isEmpty()) {
+            return closedRings;
+        }
+        // ELSE: Resolve partial rings.
+
         for (Long endpoint : waysByEndpoint.keySet()) {
             Collection<OSMWay> list = waysByEndpoint.get(endpoint);
-            if (list.size() % 2 == 1) {
+            if (list.size() % 2 == 1) { // TODO: Should not check for even but exactly  2.
                 return Collections.emptyList();
             }
         }
 
         List<Long> partialRing = new ArrayList<>();
-        if (waysByEndpoint.isEmpty()) {
-            return closedRings;
-        }
-
         long firstEndpoint = 0;
         long otherEndpoint = 0;
 
@@ -264,10 +307,12 @@ public class TopographicPlaceOsmContentHandler implements OpenStreetMapContentHa
         } else {
             return Collections.emptyList();
         }
-
     }
 
-    private boolean constructRingsRecursive(ArrayListMultimap<Long, OSMWay> waysByEndpoint, List<Long> ring, List<List<Long>> closedRings, long endpoint) {
+    private boolean constructRingsRecursive(ArrayListMultimap<Long, OSMWay> waysByEndpoint,
+                                            List<Long> ring,
+                                            List<List<Long>> closedRings,
+                                            long endpoint) {
         List<OSMWay> ways = new ArrayList<>(waysByEndpoint.get(endpoint));
         for (OSMWay way : ways) {
             //remove this way from the map
@@ -338,136 +383,19 @@ public class TopographicPlaceOsmContentHandler implements OpenStreetMapContentHa
         return false;
     }
 
-    @Override
-    public void doneSecondPhaseWays() {
-        gatherNodesUsedInWaysPhase = false;
-    }
+    private static final String TAG_NAME = "name";
 
-    @Override
-    public void doneThirdPhaseNodes() {
-        processMultipolygonRelations();
-    }
-
-    private void processMultipolygonRelations() {
-        var counter = 0;
-        for (OSMRelation relation : relationsById.values()) {
-            if (relation.isTag("type", "multipolygon") && matchesFilter(relation)) {
-
-                var innerWays = new ArrayList<OSMWay>();
-                var outerWays = new ArrayList<OSMWay>();
-
-                for (OSMRelationMember member : relation.getMembers()) {
-                    final String role = member.getRole();
-                    final OSMWay way = waysById.get(member.getRef());
-
-                    if (way != null) {
-                        if (role.equals("inner")) {
-                            innerWays.add(way);
-                        } else if (role.equals("outer")) {
-                            outerWays.add(way);
-                        } else {
-                            logger.warn("Unexpected role " + role + " in multipolygon");
-                        }
-                    }
-                }
-                var topographicPlace = map(relation);
-                if (addGeometry(innerWays, outerWays, topographicPlace)) {
-                    topographicPlaceQueue.add(topographicPlace);
-                    counter++;
-                }
-            }
-        }
-        logger.info("Total {} multipolygon POIs added.", counter);
-    }
-
-    boolean matchesFilter(OSMWithTags entity) {
+    private boolean matchesFilter(OSMWithTags entity) {
         if (!entity.hasTag(TAG_NAME)) {
             return false;
         }
 
         for (Map.Entry<String, String> tag : entity.getTags().entrySet()) {
-            if (osmPoiFilters.stream().anyMatch(f -> (tag.getKey().equals(f.getKey()) && tag.getValue().startsWith(f.getValue())))) {
+            if (osmPoiFilters.stream()
+                    .anyMatch(filter -> (tag.getKey().equals(filter.key()) && tag.getValue().startsWith(filter.value())))) {
                 return true;
             }
         }
         return false;
-    }
-
-    TopographicPlace map(OSMWithTags entity) {
-        return new TopographicPlace()
-                .withVersion("any")
-                .withModification(ModificationEnumeration.NEW)
-                .withName(multilingualString(entity.getAssumedName()))
-                .withAlternativeDescriptors(mapAlternativeDescriptors(entity))
-                .withDescriptor(new TopographicPlaceDescriptor_VersionedChildStructure().withName(multilingualString(entity.getAssumedName())))
-                .withTopographicPlaceType(TopographicPlaceTypeEnumeration.PLACE_OF_INTEREST)
-                .withCountryRef(new CountryRef().withRef(countryRef))
-                .withId(prefix(entity.getId()))
-                .withKeyList(new KeyListStructure().withKeyValue(mapKeyValues(entity)));
-    }
-
-    TopographicPlace_VersionStructure.AlternativeDescriptors mapAlternativeDescriptors(OSMWithTags entity) {
-
-        List<TopographicPlaceDescriptor_VersionedChildStructure> descriptors = entity.getTags().entrySet().stream().filter(e -> !e.getKey().equals("name") && e.getKey().startsWith("name:") && e.getValue() != null)
-                .map(e -> new TopographicPlaceDescriptor_VersionedChildStructure()
-                        .withName(new MultilingualString().withValue(e.getValue()).withLang(e.getKey().replaceFirst("name:", "")))).collect(Collectors.toList());
-
-        if (descriptors.isEmpty()) {
-            return null;
-        }
-
-        return new TopographicPlace_VersionStructure.AlternativeDescriptors().withTopographicPlaceDescriptor(descriptors);
-    }
-
-    List<KeyValueStructure> mapKeyValues(OSMWithTags entity) {
-        return entity.getTags().entrySet().stream()
-                .filter(e -> !TAG_NAME.equals(e.getKey()))
-                .map(e -> new KeyValueStructure().withKey(e.getKey()).withValue(e.getValue()))
-                .collect(Collectors.toList());
-    }
-
-    protected String prefix(long id) {
-        return participantRef + ":TopographicPlace:" + id;
-    }
-
-
-    protected MultilingualString multilingualString(String val) {
-        return new MultilingualString().withLang("no").withValue(val);
-    }
-
-
-    private PolygonType toPolygon(List<Coordinate> coordinates, String id) {
-        Polygon polygon = new GeometryFactory().createPolygon(coordinates.toArray(new Coordinate[coordinates.size()]));
-        if (!polygon.isValid()) {
-            logger.info("Invalid polygon: " + polygon);
-            return null;
-        }
-        return NetexGeoUtil.toNetexPolygon(polygon).withId(id);
-    }
-
-
-    /**
-     * Calculate centroid of list of coordinates.
-     * <p>
-     * If coordinates may be converted to a polygon, the polygons centroid is used. If not, the centroid of the corresponding multipoint is used.
-     *
-     * @param coordinates
-     * @return
-     */
-    SimplePoint_VersionStructure toCentroid(List<Coordinate> coordinates) {
-        Point centroid;
-        try {
-            centroid = new GeometryFactory().createPolygon(coordinates.toArray(new Coordinate[coordinates.size()])).getCentroid();
-        } catch (RuntimeException re) {
-            centroid = new GeometryFactory().createMultiPointFromCoords(coordinates.toArray(new Coordinate[coordinates.size()])).getCentroid();
-        }
-        return toCentroid(centroid.getY(), centroid.getX());
-    }
-
-
-    SimplePoint_VersionStructure toCentroid(double latitude, double longitude) {
-        return new SimplePoint_VersionStructure().withLocation(
-                new LocationStructure().withLatitude(BigDecimal.valueOf(latitude))
-                        .withLongitude(BigDecimal.valueOf(longitude)));
     }
 }

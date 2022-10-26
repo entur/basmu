@@ -1,77 +1,44 @@
 package org.entur.basmu.osm.service;
 
 import org.entur.basmu.osm.domain.OSMPOIFilter;
-import org.entur.basmu.osm.repository.OSMPOIFilterRepository;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-@Service("osmpoifilterService")
-@Transactional
+@Service("osmPoiFilterService")
 public class OSMPOIFilterServiceImpl implements OSMPOIFilterService {
-    private final OSMPOIFilterRepository repository;
-    private final Integer defaultPriority;
-
-    @Autowired
-    public OSMPOIFilterServiceImpl(OSMPOIFilterRepository repository, @Value("${osmpoifilter.priority.default:1}") Integer defaultPriority) {
-        this.repository = repository;
-        this.defaultPriority = defaultPriority;
-    }
 
     @Override
     public List<OSMPOIFilter> getFilters() {
-        return repository.findAll();
-    }
-
-    @Override
-    public void updateFilters(List<OSMPOIFilter> filters) {
-        List<OSMPOIFilter> currentFilters = repository.findAll();
-        List<OSMPOIFilter> filtersToDelete = findFiltersToDelete(currentFilters, filters);
-        List<OSMPOIFilter> filtersToUpdate = findFiltersToUpdate(currentFilters, filters);
-        List<OSMPOIFilter> filtersToAdd = findFiltersToAdd(currentFilters, filters);
-        repository.deleteAll(filtersToDelete);
-        repository.saveAll(preprocess(filtersToUpdate));
-        repository.saveAll(preprocess(filtersToAdd));
-    }
-
-    private List<OSMPOIFilter> findFiltersToDelete(List<OSMPOIFilter> currentFilters, List<OSMPOIFilter> filters) {
-        return currentFilters
-                .stream()
-                .filter(f -> !containsFilter(f, filters))
-                .collect(Collectors.toList());
-    }
-
-    private List<OSMPOIFilter> findFiltersToUpdate(List<OSMPOIFilter> currentFilters, List<OSMPOIFilter> filters) {
-        return filters
-                .stream()
-                .filter(f -> containsFilter(f, currentFilters))
-                .collect(Collectors.toList());
-    }
-
-    private List<OSMPOIFilter> findFiltersToAdd(List<OSMPOIFilter> currentFilters, List<OSMPOIFilter> filters) {
-        return filters
-                .stream()
-                .filter(f -> !containsFilter(f, currentFilters))
-                .collect(Collectors.toList());
-    }
-
-    private boolean containsFilter(OSMPOIFilter filter, List<OSMPOIFilter> filters) {
-        return filters
-                .stream()
-                .anyMatch(f -> f.getId().equals(filter.getId()));
-    }
-
-    private List<OSMPOIFilter> preprocess(List<OSMPOIFilter> filters) {
-        return filters.stream().peek(this::addDefaultPriority).collect(Collectors.toList());
-    }
-
-    private void addDefaultPriority(OSMPOIFilter filter) {
-        if (filter.getPriority() == null) {
-            filter.setPriority(defaultPriority);
-        }
+        return Stream.of(
+                        new OSMPOIFilter("amenity", "cinema", 1),
+                        new OSMPOIFilter("amenity", "clinic", 1),
+                        new OSMPOIFilter("amenity", "college", 1),
+                        new OSMPOIFilter("amenity", "doctors", 1),
+                        new OSMPOIFilter("amenity", "embassy", 1),
+                        new OSMPOIFilter("amenity", "exhibition_center", 1),
+                        new OSMPOIFilter("amenity", "hospital", 1),
+                        new OSMPOIFilter("amenity", "kindergarten", 1),
+                        new OSMPOIFilter("amenity", "nursing_home", 1),
+                        new OSMPOIFilter("amenity", "place_of_worship", 1),
+                        new OSMPOIFilter("amenity", "prison", 1),
+                        new OSMPOIFilter("amenity", "school", 1),
+                        new OSMPOIFilter("amenity", "theatre", 1),
+                        new OSMPOIFilter("amenity", "university", 1),
+                        new OSMPOIFilter("landuse", "cemetery", 1),
+                        new OSMPOIFilter("leisure", "park", 1),
+                        new OSMPOIFilter("leisure", "sports_centre", 1),
+                        new OSMPOIFilter("leisure", "stadium", 1),
+                        new OSMPOIFilter("office", "government", 1),
+                        new OSMPOIFilter("shop", "mall", 1),
+                        new OSMPOIFilter("social_facility", "nursing_home", 1),
+                        new OSMPOIFilter("tourism", "museum", 1),
+                        new OSMPOIFilter("name", "Entur AS", 1),
+                        new OSMPOIFilter("name", "Kristiansand Dyrepark", 1),
+                        new OSMPOIFilter("tourism", "event", 1),
+                        new OSMPOIFilter("amenity", "golf_course", 1),
+                        new OSMPOIFilter("amenity", "library", 1))
+                .toList();
     }
 }

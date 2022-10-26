@@ -1,9 +1,12 @@
 package org.entur.basmu.camel;
 
 import org.apache.camel.Exchange;
+import org.apache.commons.io.IOUtils;
 import org.entur.basmu.blobStore.BasmuBlobStoreService;
 import org.entur.basmu.blobStore.KakkaBlobStoreService;
-import org.entur.geocoder.Utilities;
+import org.entur.basmu.openstreetmap.impl.AnyFileBasedOpenStreetMapProviderImpl;
+import org.entur.basmu.openstreetmap.model.OSMMap;
+import org.entur.basmu.osm.pbf.PbfToElasticsearchCommands;
 import org.entur.geocoder.ZipUtilities;
 import org.entur.geocoder.camel.ErrorHandlerRouteBuilder;
 import org.entur.geocoder.csv.CSVCreator;
@@ -11,13 +14,13 @@ import org.entur.geocoder.model.PeliasDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.SpringApplication;
+import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
 import java.io.*;
 import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.List;
+import java.nio.file.StandardCopyOption;
 import java.util.stream.Stream;
 
 @Component
@@ -28,21 +31,22 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
     private static final String OUTPUT_FILENAME_HEADER = "balhutOutputFilename";
 
     @Value("${blobstore.gcs.kakka.kartverket.addresses.folder:kartverket/addresses}")
-    private String kartverketAddressesFolder;
+    private String osmFolder;
 
     @Value("${basmu.workdir:/tmp/basmu/geocoder}")
     private String basmuWorkDir;
 
     private final KakkaBlobStoreService kakkaBlobStoreService;
     private final BasmuBlobStoreService basmuBlobStoreService;
-    private final PeliasDocumentMapper addressMapper;
-    private final StreetMapper streetMapper;
+    private final PbfToElasticsearchCommands pbfMapper;
+
+    private final ApplicationContext context;
 
     public BasmuRouteBuilder(
+            ApplicationContext context,
             KakkaBlobStoreService kakkaBlobStoreService,
             BasmuBlobStoreService balhutBlobStoreService,
-            PeliasDocumentMapper addressMapper,
-            StreetMapper streetMapper,
+            PbfToElasticsearchCommands pbfMapper,
             @Value("${basmu.camel.redelivery.max:3}") int maxRedelivery,
             @Value("${basmu.camel.redelivery.delay:5000}") int redeliveryDelay,
             @Value("${basmu.camel.redelivery.backoff.multiplier:3}") int backOffMultiplier) {
@@ -50,77 +54,70 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
         super(maxRedelivery, redeliveryDelay, backOffMultiplier);
         this.kakkaBlobStoreService = kakkaBlobStoreService;
         this.basmuBlobStoreService = balhutBlobStoreService;
-        this.addressMapper = addressMapper;
-        this.streetMapper = streetMapper;
+        this.pbfMapper = pbfMapper;
+        this.context = context;
     }
 
     @Override
     public void configure() {
 
         from("direct:makeCSV")
-                .process(this::loadAddressesFile)
-                .process(this::unzipAddressesFileToWorkingDirectory)
-                .process(this::readAddressesCSVFile)
-                .process(this::createPeliasDocumentStreamForAllIndividualAddresses)
-                .process(this::addPeliasDocumentStreamForStreets)
+                .process(this::loadPOIFile)
+//                .process(this::copyFileToWorkingDirectory)
+//                .process(this::createOSMMap)
+                .process(this::createPeliasDocumentStreamForPointOfInterests)
                 .process(this::createCSVFile)
                 .process(this::setOutputFilenameHeader)
                 .process(this::zipCSVFile)
                 .process(this::uploadCSVFile)
-                .process(this::copyCSVFileAsLatestToConfiguredBucket);
+                .process(this::copyCSVFileAsLatestToConfiguredBucket)
+                .process(exchange -> SpringApplication.exit(context, () -> 0));
     }
 
-    private void loadAddressesFile(Exchange exchange) {
-        logger.debug("Loading addresses file");
+    private void loadPOIFile(Exchange exchange) {
+        logger.debug("Loading POI file");
         exchange.getIn().setBody(
-                kakkaBlobStoreService.findLatestBlob(kartverketAddressesFolder),
+                kakkaBlobStoreService.findLatestBlob(osmFolder), // TODO: Load latest file with given extension pbf
                 InputStream.class
         );
     }
 
-    private void unzipAddressesFileToWorkingDirectory(Exchange exchange) {
-        logger.debug("Unzipping addresses file");
-        ZipUtilities.unzipFile(
-                exchange.getIn().getBody(InputStream.class),
-                basmuWorkDir + "/addresses"
-        );
-    }
-
-    private void readAddressesCSVFile(Exchange exchange) {
-        logger.debug("Read addresses CSV file");
-        try (Stream<Path> paths = Files.walk(Paths.get(basmuWorkDir + "/addresses"))) {
-            paths.filter(Utilities::isValidFile).findFirst().ifPresent(path -> {
-                exchange.getIn().setBody(KartverketAddressReader.read(path));
-            });
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+    private void copyFileToWorkingDirectory(Exchange exchange) {
+        InputStream inputStream = exchange.getIn().getBody(InputStream.class);
+        File tmpPoiFile = new File(basmuWorkDir + File.pathSeparator + "poi.pbf");
+        tmpPoiFile.deleteOnExit();
+        try (var out = new FileOutputStream(tmpPoiFile)) {
+            IOUtils.copy(inputStream, out);
+            exchange.getIn().setBody(tmpPoiFile);
+        } catch (Exception ex) {
+            throw new RuntimeException(ex);
         }
     }
 
-    private void createPeliasDocumentStreamForAllIndividualAddresses(Exchange exchange) {
-        logger.debug("Converting stream of kartverket addresses to stream of pelias documents.");
-
-        @SuppressWarnings("unchecked")
-        Stream<KartverketAddress> addresses = exchange.getIn().getBody(Stream.class);
-        // Create documents for all individual addresses
-        List<PeliasDocument> peliasDocuments = addresses.parallel()
-                .map(addressMapper::toPeliasDocument).toList();
-
-        exchange.getIn().setBody(peliasDocuments);
+    private void createOSMMap(Exchange exchange) {
+        logger.debug("Loading POI file");
+        File file = exchange.getIn().getBody(File.class);
+        AnyFileBasedOpenStreetMapProviderImpl impl = new AnyFileBasedOpenStreetMapProviderImpl(file);
+        OSMMap osmMap = new OSMMap();
+        impl.readOSM(osmMap);
+        exchange.getIn().setBody(osmMap);
     }
 
-    private void addPeliasDocumentStreamForStreets(Exchange exchange) {
-        logger.debug("Adding peliasDocuments stream for unique streets");
+    private void storeFileInWorkingDirectory(Exchange exchange) throws IOException {
+        InputStream inputStream = exchange.getIn().getBody(InputStream.class);
 
-        @SuppressWarnings("unchecked")
-        List<PeliasDocument> peliasDocumentsForIndividualAddresses = exchange.getIn().getBody(List.class);
+        File targetFile = new File(basmuWorkDir + "/poi/poi.pbf");
+        Files.copy(
+                inputStream,
+                targetFile.toPath(),
+                StandardCopyOption.REPLACE_EXISTING);
+    }
 
-        // Create separate document per unique street
-        exchange.getIn().setBody(
-                Stream.concat(
-                        peliasDocumentsForIndividualAddresses.stream(),
-                        streetMapper.createStreetPeliasDocumentsFromAddresses(peliasDocumentsForIndividualAddresses))
-        );
+    private void createPeliasDocumentStreamForPointOfInterests(Exchange exchange) {
+        logger.debug("Converting to stream of pelias documents.");
+
+        InputStream inputStream = exchange.getIn().getBody(InputStream.class);
+        exchange.getIn().setBody(pbfMapper.transform(inputStream));
     }
 
     private void createCSVFile(Exchange exchange) {
