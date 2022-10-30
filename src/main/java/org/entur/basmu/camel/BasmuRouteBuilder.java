@@ -4,8 +4,6 @@ import org.apache.camel.Exchange;
 import org.apache.commons.io.IOUtils;
 import org.entur.basmu.blobStore.BasmuBlobStoreService;
 import org.entur.basmu.blobStore.KakkaBlobStoreService;
-import org.entur.basmu.openstreetmap.impl.AnyFileBasedOpenStreetMapProviderImpl;
-import org.entur.basmu.openstreetmap.model.OSMMap;
 import org.entur.basmu.osm.pbf.PbfToElasticsearchCommands;
 import org.entur.geocoder.ZipUtilities;
 import org.entur.geocoder.camel.ErrorHandlerRouteBuilder;
@@ -28,7 +26,7 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
 
     private static final Logger logger = LoggerFactory.getLogger(BasmuRouteBuilder.class);
 
-    private static final String OUTPUT_FILENAME_HEADER = "balhutOutputFilename";
+    private static final String OUTPUT_FILENAME_HEADER = "basmuOutputFilename";
 
     @Value("${blobstore.gcs.kakka.kartverket.addresses.folder:kartverket/addresses}")
     private String osmFolder;
@@ -45,7 +43,7 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
     public BasmuRouteBuilder(
             ApplicationContext context,
             KakkaBlobStoreService kakkaBlobStoreService,
-            BasmuBlobStoreService balhutBlobStoreService,
+            BasmuBlobStoreService basmuBlobStoreService,
             PbfToElasticsearchCommands pbfMapper,
             @Value("${basmu.camel.redelivery.max:3}") int maxRedelivery,
             @Value("${basmu.camel.redelivery.delay:5000}") int redeliveryDelay,
@@ -53,7 +51,7 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
 
         super(maxRedelivery, redeliveryDelay, backOffMultiplier);
         this.kakkaBlobStoreService = kakkaBlobStoreService;
-        this.basmuBlobStoreService = balhutBlobStoreService;
+        this.basmuBlobStoreService = basmuBlobStoreService;
         this.pbfMapper = pbfMapper;
         this.context = context;
     }
@@ -94,15 +92,6 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
         }
     }
 
-    private void createOSMMap(Exchange exchange) {
-        logger.debug("Loading POI file");
-        File file = exchange.getIn().getBody(File.class);
-        AnyFileBasedOpenStreetMapProviderImpl impl = new AnyFileBasedOpenStreetMapProviderImpl(file);
-        OSMMap osmMap = new OSMMap();
-        impl.readOSM(osmMap);
-        exchange.getIn().setBody(osmMap);
-    }
-
     private void storeFileInWorkingDirectory(Exchange exchange) throws IOException {
         InputStream inputStream = exchange.getIn().getBody(InputStream.class);
 
@@ -131,7 +120,7 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
     private void setOutputFilenameHeader(Exchange exchange) {
         exchange.getIn().setHeader(
                 OUTPUT_FILENAME_HEADER,
-                "balhut_export_geocoder_" + System.currentTimeMillis()
+                "basmu_export_geocoder_" + System.currentTimeMillis()
         );
     }
 

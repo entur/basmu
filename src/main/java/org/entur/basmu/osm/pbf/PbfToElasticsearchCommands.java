@@ -1,24 +1,20 @@
 package org.entur.basmu.osm.pbf;
 
+import crosby.binary.file.BlockInputStream;
 import org.apache.commons.io.IOUtils;
+import org.entur.basmu.osm.BinaryOpenStreetMapParser;
+import org.entur.basmu.osm.OpenStreetMapContentHandler;
 import org.entur.basmu.osm.domain.OSMPOIFilter;
-import org.entur.basmu.osm.mapper.TopographicPlaceToPeliasMapper;
 import org.entur.basmu.osm.service.OSMPOIFilterService;
 import org.entur.geocoder.model.PeliasDocument;
-import org.rutebanken.netex.model.IanaCountryTldEnumeration;
-import org.rutebanken.netex.model.TopographicPlace;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.util.CollectionUtils;
 import org.springframework.util.ObjectUtils;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingDeque;
@@ -41,7 +37,9 @@ public class PbfToElasticsearchCommands {
         this.osmpoiFilterService = osmpoiFilterService;
         this.poiBoost = poiBoost;
         if (poiFilter != null) {
-            this.poiFilter = poiFilter.stream().filter(filter -> !ObjectUtils.isEmpty(filter)).collect(Collectors.toList());
+            this.poiFilter = poiFilter.stream()
+                    .filter(filter -> !ObjectUtils.isEmpty(filter))
+                    .collect(Collectors.toList());
             logger.info("pelias poiFilter is set to: {}", poiFilter);
         } else {
             this.poiFilter = new ArrayList<>();
@@ -51,16 +49,40 @@ public class PbfToElasticsearchCommands {
 
     public Collection<PeliasDocument> transform(InputStream poiStream) {
         try {
-            List<OSMPOIFilter> osmPoiFilter = osmpoiFilterService.getFilters();
+            List<OSMPOIFilter> osmPoiFilters = osmpoiFilterService.getFilters();
             File tmpPoiFile = getFile(poiStream);
-            var reader = new PbfTopographicPlaceReader(osmPoiFilter, IanaCountryTldEnumeration.NO, tmpPoiFile);
-            BlockingQueue<TopographicPlace> queue = new LinkedBlockingDeque<>();
-            reader.addToQueue(queue);
-            List<TopographicPlace> topographicPlaceList = new ArrayList<>(queue);
-            return new ArrayList<>(addTopographicPlaceCommands(topographicPlaceList));
+            BlockingQueue<PeliasDocument> queue = new LinkedBlockingDeque<>();
+            addToQueue(queue, tmpPoiFile, osmPoiFilters);
+            return new ArrayList<>(queue);
         } catch (Exception ex) {
             throw new RuntimeException(ex);
         }
+    }
+
+    public void addToQueue(BlockingQueue<PeliasDocument> queue, File file, List<OSMPOIFilter> osmPoiFilters) throws IOException {
+        OpenStreetMapContentHandler contentHandler = new OsmContentHandler(
+                queue,
+                osmPoiFilters,
+                poiBoost,
+                poiFilter);
+        BinaryOpenStreetMapParser parser = new BinaryOpenStreetMapParser(contentHandler);
+
+        //Parse relations to collect ways first
+        parser.setParseWays(false);
+        parser.setParseNodes(false);
+
+        new BlockInputStream(new FileInputStream(file), parser).process();
+        parser.setParseRelations(false);
+
+        // Parse ways to collect nodes first
+        parser.setParseWays(true);
+        new BlockInputStream(new FileInputStream(file), parser).process();
+        contentHandler.doneSecondPhaseWays();
+
+        // Parse nodes and ways
+        parser.setParseNodes(true);
+        new BlockInputStream(new FileInputStream(file), parser).process();
+        contentHandler.doneThirdPhaseNodes();
     }
 
     private File getFile(InputStream poiStream) throws IOException {
@@ -69,23 +91,6 @@ public class PbfToElasticsearchCommands {
         var out = new FileOutputStream(tmpPoiFile);
         IOUtils.copy(poiStream, out);
         return tmpPoiFile;
-    }
-
-    private List<PeliasDocument> addTopographicPlaceCommands(List<TopographicPlace> places) {
-        if (!CollectionUtils.isEmpty(places)) {
-            logger.info("Total number of topographical places from osm: {}", places.size());
-
-            TopographicPlaceToPeliasMapper mapper = new TopographicPlaceToPeliasMapper(poiBoost, poiFilter, osmpoiFilterService.getFilters());
-            final List<PeliasDocument> collect = places.stream()
-                    .map(mapper::toPeliasDocumentsForNames)
-                    .flatMap(Collection::stream)
-                    .sorted((p1, p2) -> -p1.getPopularity().compareTo(p2.getPopularity()))
-                    .toList();
-
-            logger.info("Total topographical places mapped forElasticsearchCommand: {}", collect.size());
-            return collect;
-        }
-        return new ArrayList<>();
     }
 }
 

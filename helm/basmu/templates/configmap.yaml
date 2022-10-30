@@ -6,7 +6,7 @@ data:
     blobstore.gcs.kakka.bucket.name={{ .Values.gcs.kakka.bucketName }}
     blobstore.gcs.kakka.kartverket.addresses.folder=kartverket/addresses
     blobstore.gcs.haya.bucket.name={{ .Values.gcs.haya.bucketName }}
-    blobstore.gcs.haya.latest.filename_without_extension=balhut_latest
+    blobstore.gcs.haya.latest.filename_without_extension=basmu_latest
     blobstore.gcs.haya.import.folder=import
     spring.profiles.active=gcs-blobstore
     management.endpoints.enabled-by-default=false
