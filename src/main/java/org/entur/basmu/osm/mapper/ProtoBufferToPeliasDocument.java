@@ -1,9 +1,7 @@
-package org.entur.basmu.osm.pbf;
+package org.entur.basmu.osm.mapper;
 
 import crosby.binary.file.BlockInputStream;
 import org.apache.commons.io.IOUtils;
-import org.entur.basmu.osm.BinaryOpenStreetMapParser;
-import org.entur.basmu.osm.OpenStreetMapContentHandler;
 import org.entur.basmu.osm.domain.OSMPOIFilter;
 import org.entur.basmu.osm.service.OSMPOIFilterService;
 import org.entur.geocoder.model.PeliasDocument;
@@ -21,9 +19,9 @@ import java.util.concurrent.LinkedBlockingDeque;
 import java.util.stream.Collectors;
 
 @Service
-public class PbfToElasticsearchCommands {
+public class ProtoBufferToPeliasDocument {
 
-    public static final Logger logger = LoggerFactory.getLogger(PbfToElasticsearchCommands.class);
+    public static final Logger logger = LoggerFactory.getLogger(ProtoBufferToPeliasDocument.class);
 
     private final OSMPOIFilterService osmpoiFilterService;
 
@@ -31,9 +29,9 @@ public class PbfToElasticsearchCommands {
 
     private final List<String> poiFilter;
 
-    public PbfToElasticsearchCommands(@Autowired OSMPOIFilterService osmpoiFilterService,
-                                      @Value("${pelias.poi.boost:1}") long poiBoost,
-                                      @Value("#{'${pelias.poi.filter:}'.split(',')}") List<String> poiFilter) {
+    public ProtoBufferToPeliasDocument(@Autowired OSMPOIFilterService osmpoiFilterService,
+                                       @Value("${pelias.poi.boost:1}") long poiBoost,
+                                       @Value("#{'${pelias.poi.filter:}'.split(',')}") List<String> poiFilter) {
         this.osmpoiFilterService = osmpoiFilterService;
         this.poiBoost = poiBoost;
         if (poiFilter != null) {
@@ -60,11 +58,7 @@ public class PbfToElasticsearchCommands {
     }
 
     public void addToQueue(BlockingQueue<PeliasDocument> queue, File file, List<OSMPOIFilter> osmPoiFilters) throws IOException {
-        OpenStreetMapContentHandler contentHandler = new OsmContentHandler(
-                queue,
-                osmPoiFilters,
-                poiBoost,
-                poiFilter);
+        ProtoBufferContentHandler contentHandler = new ProtoBufferContentHandler(queue, osmPoiFilters, poiBoost, poiFilter);
         BinaryOpenStreetMapParser parser = new BinaryOpenStreetMapParser(contentHandler);
 
         //Parse relations to collect ways first

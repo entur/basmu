@@ -19,31 +19,46 @@ package org.entur.basmu.osm.model;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Copied from OpenTripPlanner - https://github.com/opentripplanner/OpenTripPlanner
- */
 public class OSMWay extends OSMWithTags {
 
-    private final List<Long> nodes = new ArrayList<>();
+    private final List<Long> nodeRefs = new ArrayList<>();
 
-    public void addNodeRef(OSMNodeRef nodeRef) {
-        nodes.add(nodeRef.getRef());
+    OSMWay(OSMWay osmWay) {
+        super(osmWay.getId());
+        osmWay.getTags().forEach(super::addTag);
+        osmWay.getNodeRefs().forEach(this::addNodeRef);
     }
 
-    public void addNodeRef(long nodeRef) {
-        nodes.add(nodeRef);
-    }
-
-    public void addNodeRef(long nodeRef, int index) {
-        nodes.add(index, nodeRef);
+    public OSMWay(long id) {
+        super(id);
     }
 
     public List<Long> getNodeRefs() {
-        return nodes;
+        return nodeRefs.stream().toList();
+    }
+
+    public void addNodeRef(Long nodeRef) {
+        nodeRefs.add(nodeRef);
+    }
+
+    public Long getStart() {
+        return nodeRefs.get(0);
+    }
+
+    public Long getEnd() {
+        return nodeRefs.get(nodeRefs.size() - 1);
+    }
+
+    public List<Long> getNodeRefsTrimEnd() {
+        return nodeRefs.stream().limit(nodeRefs.size() - 1).toList();
+    }
+
+    public List<Long> getNodeRefsTrimStart() {
+        return nodeRefs.stream().skip(1).toList();
     }
 
     public String toString() {
-        return "osm way " + id;
+        return "osm way " + getId();
     }
 
 }

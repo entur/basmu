@@ -1,19 +1,3 @@
-/*
- * Licensed under the EUPL, Version 1.2 or – as soon they will be approved by
- * the European Commission - subsequent versions of the EUPL (the "Licence");
- * You may not use this work except in compliance with the Licence.
- * You may obtain a copy of the Licence at:
- *
- *   https://joinup.ec.europa.eu/software/page/eupl
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the Licence is distributed on an "AS IS" basis,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the Licence for the specific language governing permissions and
- * limitations under the Licence.
- *
- */
-
 package org.entur.basmu.osm.mapper;
 
 import org.entur.basmu.osm.domain.OSMPOIFilter;
@@ -29,7 +13,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
-public class OSMToPeliasDocumentMapper {
+public class PeliasDocumentMapper {
 
     private static final String OSM_TAG_NAME = "name";
     private static final String DEFAULT_SOURCE = "osm";
@@ -39,8 +23,7 @@ public class OSMToPeliasDocumentMapper {
     private final List<String> typeFilter;
     private final List<OSMPOIFilter> osmPoiFilters;
 
-    public OSMToPeliasDocumentMapper(long popularity, List<String> typeFilter, List<OSMPOIFilter> osmPoiFilters) {
-        super();
+    public PeliasDocumentMapper(long popularity, List<String> typeFilter, List<OSMPOIFilter> osmPoiFilters) {
         this.popularity = popularity;
         this.typeFilter = typeFilter;
         this.osmPoiFilters = osmPoiFilters;
@@ -81,16 +64,7 @@ public class OSMToPeliasDocumentMapper {
         document.setDefaultName(name.value());
         document.setCenterPoint(centroid);
         setDisplayName(document, entity);
-
-        /*
-        if (place.getAlternativeDescriptors() != null
-                && !CollectionUtils.isEmpty(place.getAlternativeDescriptors().getTopographicPlaceDescriptor())) {
-            place.getAlternativeDescriptors().getTopographicPlaceDescriptor().stream()
-                    .filter(an -> an.getName() != null && an.getName().getLang() != null)
-                    .forEach(n -> document.addAlternativeName(n.getName().getLang(), n.getName().getValue()));
-        }
-        */
-
+        addAlternativeNames(entity, document);
         Map<String, String> osmTags = getOSMTags(entity);
         document.setPopularity(popularity * getPopularityBoost(osmTags));
         addPOICategories(document, osmTags);
@@ -100,12 +74,20 @@ public class OSMToPeliasDocumentMapper {
 
     /**
      * Add official name as display name.
-     * Not a part of standard pelias model, will be copied to name.default before deduping and labelling in Entur-pelias API.
+     * Not a part of standard pelias model, will be copied to name.default before deduping
+     * and labelling in Entur-pelias API.
      */
     private static void setDisplayName(PeliasDocument document, OSMWithTags entity) {
         LanguageString displayName = getDisplayName(entity);
         document.setDisplayName(displayName.value());
         document.addAlternativeName(displayName.language(), displayName.value());
+    }
+
+    private static void addAlternativeNames(OSMWithTags entity, PeliasDocument document) {
+        List<LanguageString> alternativeDescriptors = mapAlternativeDescriptors(entity);
+        alternativeDescriptors.stream()
+                .filter(alternativeDescriptor -> alternativeDescriptor.language() != null)
+                .forEach(alternativeDescriptor -> document.addAlternativeName(alternativeDescriptor.language(), alternativeDescriptor.value()));
     }
 
     private void addPOICategories(PeliasDocument document, Map<String, String> osmTags) {

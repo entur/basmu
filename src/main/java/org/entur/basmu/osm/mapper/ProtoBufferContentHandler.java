@@ -14,11 +14,9 @@
  *
  */
 
-package org.entur.basmu.osm.pbf;
+package org.entur.basmu.osm.mapper;
 
-import org.entur.basmu.osm.OpenStreetMapContentHandler;
 import org.entur.basmu.osm.domain.OSMPOIFilter;
-import org.entur.basmu.osm.mapper.OSMToPeliasDocumentMapper;
 import org.entur.basmu.osm.model.*;
 import org.entur.geocoder.model.GeoPoint;
 import org.entur.geocoder.model.PeliasDocument;
@@ -30,6 +28,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
+import java.util.stream.Stream;
 
 /**
  * Map OSM nodes and ways to Netex topographic place.
@@ -37,8 +36,8 @@ import java.util.concurrent.BlockingQueue;
  * Ways refer to nodes for coordinates. Because of this, files must be parsed twice,
  * first to collect node ids referred by relevant ways and then to map relevant nodes and ways.
  */
-public class OsmContentHandler implements OpenStreetMapContentHandler {
-    private static final Logger logger = LoggerFactory.getLogger(OsmContentHandler.class);
+public class ProtoBufferContentHandler {
+    private static final Logger logger = LoggerFactory.getLogger(ProtoBufferContentHandler.class);
     private static final String TAG_NAME = "name";
 
     private final BlockingQueue<PeliasDocument> peliasDocumentQueue;
@@ -53,33 +52,30 @@ public class OsmContentHandler implements OpenStreetMapContentHandler {
     private final Map<Long, OSMWay> waysMapForMultipolygonRelations = new HashMap<>();
     private final Map<Long, OSMNode> nodesMapForMultipolygonRelations = new HashMap<>();
 
-    private final OSMToPeliasDocumentMapper osmToPeliasDocumentMapper;
+    private final PeliasDocumentMapper peliasDocumentMapper;
 
     private boolean gatherNodesUsedInWaysPhase = true;
 
-    public OsmContentHandler(BlockingQueue<PeliasDocument> peliasDocumentQueue,
-                             List<OSMPOIFilter> osmPoiFilters,
-                             long poiBoost,
-                             List<String> poiFilter) {
+    public ProtoBufferContentHandler(BlockingQueue<PeliasDocument> peliasDocumentQueue,
+                                     List<OSMPOIFilter> osmPoiFilters,
+                                     long poiBoost,
+                                     List<String> poiFilter) {
         this.peliasDocumentQueue = peliasDocumentQueue;
         this.osmPoiFilters = osmPoiFilters;
-        this.osmToPeliasDocumentMapper = new OSMToPeliasDocumentMapper(poiBoost, poiFilter, osmPoiFilters);
+        this.peliasDocumentMapper = new PeliasDocumentMapper(poiBoost, poiFilter, osmPoiFilters);
     }
 
-    @Override
     public void doneSecondPhaseWays() {
         gatherNodesUsedInWaysPhase = false;
     }
 
-    @Override
     public void doneThirdPhaseNodes() {
         processMultipolygonRelations();
     }
 
-    @Override
     public void addNode(OSMNode osmNode) {
         if (matchesFilter(osmNode)) {
-            peliasDocumentQueue.addAll(osmToPeliasDocumentMapper.map(osmNode, new GeoPoint(osmNode.lat, osmNode.lon)));
+            peliasDocumentQueue.addAll(peliasDocumentMapper.map(osmNode, new GeoPoint(osmNode.getLat(), osmNode.getLon())));
         }
 
         if (nodeRefsForWays.contains(osmNode.getId())) {
@@ -95,7 +91,6 @@ public class OsmContentHandler implements OpenStreetMapContentHandler {
         }
     }
 
-    @Override
     public void addWay(OSMWay osmWay) {
         var wayId = osmWay.getId();
         if (waysMapForMultipolygonRelations.containsKey(wayId)) {
@@ -117,7 +112,7 @@ public class OsmContentHandler implements OpenStreetMapContentHandler {
             } else {
                 GeoPoint centroid = getCentroid(osmWay);
                 if (centroid != null) {
-                    List<PeliasDocument> peliasDocuments = osmToPeliasDocumentMapper.map(osmWay, centroid);
+                    List<PeliasDocument> peliasDocuments = peliasDocumentMapper.map(osmWay, centroid);
                     peliasDocumentQueue.addAll(peliasDocuments);
                 } else {
                     logger.info("Ignoring osmWay with missing nodes: " + osmWay.getAssumedName());
@@ -126,17 +121,12 @@ public class OsmContentHandler implements OpenStreetMapContentHandler {
         }
     }
 
-    @Override
     public void addRelation(OSMRelation osmRelation) {
         if (!multiPolygonRelationsMap.containsKey(osmRelation.getId())
                 && osmRelation.isTag("type", "multipolygon")
                 && matchesFilter(osmRelation)) {
-            var members = osmRelation.getMembers();
-            members.forEach(member -> {
-                if (member.getType().equals("way")) {
-                    wayRefsForMultipolygonRelations.add(member.getRef());
-                }
-            });
+
+            wayRefsForMultipolygonRelations.addAll(osmRelation.getMemberRefsOfType("way"));
             multiPolygonRelationsMap.put(osmRelation.getId(), osmRelation);
         }
     }
@@ -145,62 +135,46 @@ public class OsmContentHandler implements OpenStreetMapContentHandler {
         var counter = 0;
         for (OSMRelation relation : multiPolygonRelationsMap.values()) {
 
-            // TODO: This if check is not needed as this condition is already satisfied in addRelation
-            if (relation.isTag("type", "multipolygon") && matchesFilter(relation)) {
+            var innerWaysOfMultipolygonRelation = relation.getMemberRefsForRole("inner").stream()
+                    .map(waysMapForMultipolygonRelations::get)
+                    .filter(Objects::nonNull)
+                    .toList();
 
-                var innerWaysOfMultipolygonRelation = new ArrayList<OSMWay>();
-                var outerWaysOfMultipolygonRelation = new ArrayList<OSMWay>();
+            var outerWaysOfMultipolygonRelation = relation.getMemberRefsForRole("outer").stream()
+                    .map(waysMapForMultipolygonRelations::get)
+                    .filter(Objects::nonNull)
+                    .toList();
 
-                for (OSMRelationMember member : relation.getMembers()) {
-                    final String role = member.getRole();
-                    final OSMWay way = waysMapForMultipolygonRelations.get(member.getRef());
-
-                    if (way != null) {
-                        if (role.equals("inner")) {
-                            innerWaysOfMultipolygonRelation.add(way);
-                        } else if (role.equals("outer")) {
-                            outerWaysOfMultipolygonRelation.add(way);
-                        } else {
-                            logger.warn("Unexpected role " + role + " in multipolygon");
-                        }
-                    }
-                }
-                GeoPoint centroid = getCentroid(innerWaysOfMultipolygonRelation, outerWaysOfMultipolygonRelation);
-                if (centroid != null) {
-                    peliasDocumentQueue.addAll(osmToPeliasDocumentMapper.map(relation, centroid));
-                    counter++;
-                }
+            GeoPoint centroid = getCentroid(innerWaysOfMultipolygonRelation, outerWaysOfMultipolygonRelation);
+            if (centroid != null) {
+                peliasDocumentQueue.addAll(peliasDocumentMapper.map(relation, centroid));
+                counter++;
             }
         }
         logger.info("Total {} multipolygon POIs added.", counter);
     }
 
-    private GeoPoint getCentroid(ArrayList<OSMWay> innerWaysOfMultipolygonRelation,
-                                 ArrayList<OSMWay> outerWaysOfMultipolygonRelation) {
+    private GeoPoint getCentroid(List<OSMWay> innerWaysOfMultipolygonRelation,
+                                 List<OSMWay> outerWaysOfMultipolygonRelation) {
 
-        List<Polygon> polygons = new ArrayList<>();
-
-        final List<List<Long>> outerRingNodes = MappingUtil.constructRings(outerWaysOfMultipolygonRelation);
-        final List<List<Long>> innerRingNodes = MappingUtil.constructRings(innerWaysOfMultipolygonRelation);
-
-        var outerPolygons = outerRingNodes.stream()
-                .map(ring -> new Ring(ring, nodesMapForMultipolygonRelations).getPolygon())
-                .filter(Objects::nonNull)
-                .toList();
-        var innerPolygons = innerRingNodes.stream()
-                .map(ring -> new Ring(ring, nodesMapForMultipolygonRelations).getPolygon())
-                .filter(Objects::nonNull).toList();
+        var outerPolygons =
+                MappingUtil.makeMultiPolygonsForOSMWays(outerWaysOfMultipolygonRelation, nodesMapForMultipolygonRelations);
 
         if (!outerPolygons.isEmpty() && !MappingUtil.checkPolygonProximity(outerPolygons)) {
-            polygons.addAll(outerPolygons);
-            polygons.addAll(innerPolygons);
+
+            var innerPolygons =
+                    MappingUtil.makeMultiPolygonsForOSMWays(innerWaysOfMultipolygonRelation, nodesMapForMultipolygonRelations);
 
             try {
-                var multiPolygon = new GeometryFactory().createMultiPolygon(polygons.toArray(new Polygon[0]));
+                var multiPolygon = new GeometryFactory().createMultiPolygon(
+                        Stream.of(outerPolygons, innerPolygons)
+                                .flatMap(Collection::stream)
+                                .toArray(Polygon[]::new)
+                );
                 var interiorPoint = multiPolygon.getInteriorPoint();
                 return new GeoPoint(interiorPoint.getY(), interiorPoint.getX());
             } catch (RuntimeException e) {
-                logger.warn("unable to add geometry" + e);
+                logger.warn("Unable to find centroid" + e);
                 return null;
             }
         }
@@ -228,7 +202,7 @@ public class OsmContentHandler implements OpenStreetMapContentHandler {
         for (Long nodeRef : osmWay.getNodeRefs()) {
             OSMNode node = nodesMapForWays.get(nodeRef);
             if (node != null) {
-                coordinates.add(new Coordinate(node.lon, node.lat));
+                coordinates.add(new Coordinate(node.getLon(), node.getLat()));
             }
         }
 

@@ -1,10 +1,9 @@
 package org.entur.basmu.camel;
 
 import org.apache.camel.Exchange;
-import org.apache.commons.io.IOUtils;
 import org.entur.basmu.blobStore.BasmuBlobStoreService;
 import org.entur.basmu.blobStore.KakkaBlobStoreService;
-import org.entur.basmu.osm.pbf.PbfToElasticsearchCommands;
+import org.entur.basmu.osm.mapper.ProtoBufferToPeliasDocument;
 import org.entur.geocoder.ZipUtilities;
 import org.entur.geocoder.camel.ErrorHandlerRouteBuilder;
 import org.entur.geocoder.csv.CSVCreator;
@@ -17,8 +16,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
 import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.stream.Stream;
 
 @Component
@@ -36,7 +33,7 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
 
     private final KakkaBlobStoreService kakkaBlobStoreService;
     private final BasmuBlobStoreService basmuBlobStoreService;
-    private final PbfToElasticsearchCommands pbfMapper;
+    private final ProtoBufferToPeliasDocument pbfMapper;
 
     private final ApplicationContext context;
 
@@ -44,7 +41,7 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
             ApplicationContext context,
             KakkaBlobStoreService kakkaBlobStoreService,
             BasmuBlobStoreService basmuBlobStoreService,
-            PbfToElasticsearchCommands pbfMapper,
+            ProtoBufferToPeliasDocument pbfMapper,
             @Value("${basmu.camel.redelivery.max:3}") int maxRedelivery,
             @Value("${basmu.camel.redelivery.delay:5000}") int redeliveryDelay,
             @Value("${basmu.camel.redelivery.backoff.multiplier:3}") int backOffMultiplier) {
@@ -61,9 +58,7 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
 
         from("direct:makeCSV")
                 .process(this::loadPOIFile)
-//                .process(this::copyFileToWorkingDirectory)
-//                .process(this::createOSMMap)
-                .process(this::createPeliasDocumentStreamForPointOfInterests)
+                .process(this::createPeliasDocumentForPointOfInterests)
                 .process(this::createCSVFile)
                 .process(this::setOutputFilenameHeader)
                 .process(this::zipCSVFile)
@@ -80,30 +75,8 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
         );
     }
 
-    private void copyFileToWorkingDirectory(Exchange exchange) {
-        InputStream inputStream = exchange.getIn().getBody(InputStream.class);
-        File tmpPoiFile = new File(basmuWorkDir + File.pathSeparator + "poi.pbf");
-        tmpPoiFile.deleteOnExit();
-        try (var out = new FileOutputStream(tmpPoiFile)) {
-            IOUtils.copy(inputStream, out);
-            exchange.getIn().setBody(tmpPoiFile);
-        } catch (Exception ex) {
-            throw new RuntimeException(ex);
-        }
-    }
-
-    private void storeFileInWorkingDirectory(Exchange exchange) throws IOException {
-        InputStream inputStream = exchange.getIn().getBody(InputStream.class);
-
-        File targetFile = new File(basmuWorkDir + "/poi/poi.pbf");
-        Files.copy(
-                inputStream,
-                targetFile.toPath(),
-                StandardCopyOption.REPLACE_EXISTING);
-    }
-
-    private void createPeliasDocumentStreamForPointOfInterests(Exchange exchange) {
-        logger.debug("Converting to stream of pelias documents.");
+    private void createPeliasDocumentForPointOfInterests(Exchange exchange) {
+        logger.debug("Converting to pelias documents.");
 
         InputStream inputStream = exchange.getIn().getBody(InputStream.class);
         exchange.getIn().setBody(pbfMapper.transform(inputStream));

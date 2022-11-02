@@ -1,41 +1,51 @@
 package org.entur.basmu.osm.model;
 
-import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.Polygon;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.*;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-
-public class Ring {
-
-    public static final Logger logger = LoggerFactory.getLogger(Ring.class);
-
-    private final List<Long> nodesIds;
-    private final Map<Long, OSMNode> nodes;
-
-    public Ring(List<Long> nodesIds, Map<Long, OSMNode> nodes) {
-        this.nodesIds = nodesIds;
-        this.nodes = nodes;
-
+public record Ring(List<OSMWay> ways) {
+    public static Ring withWay(OSMWay osmWay) {
+        return new Ring(List.of(new OSMWay(osmWay)));
     }
 
-    public Polygon getPolygon() {
-        ArrayList<Coordinate> coordinates = new ArrayList<>();
-        for (long nodeId : nodesIds) {
-            var node = nodes.get(nodeId);
-            var coordinate = new Coordinate(node.lon, node.lat);
-            coordinates.add(coordinate);
+    public boolean isClosed() {
+        if (ways().isEmpty()) {
+            return false;
         }
-        try {
-            return new GeometryFactory().createPolygon(coordinates.toArray(new Coordinate[0]));
-        } catch (IllegalArgumentException illegalArgumentException) {
-            logger.debug("Unable to create polygon: " + illegalArgumentException.getMessage());
-            return null;
-        }
+
+        return ways.stream().allMatch(thisWay ->
+                ways.stream().anyMatch(thatWay ->
+                        thisWay.getEnd().equals(thatWay.getEnd())
+                        || thisWay.getEnd().equals(thatWay.getStart())
+                ));
     }
 
+    public Long getStart() {
+        return ways.get(0).getStart();
+    }
+
+    public Long getEnd() {
+        return ways.get(ways.size() - 1).getEnd();
+    }
+
+    public List<Long> getClosedRingNodeRefs() {
+        if (!isClosed()) {
+            throw new RuntimeException("Ring is not closed.");
+        }
+
+        List<Long> nodeRefs = new ArrayList<>();
+
+        ways.stream().findFirst()
+                .ifPresent(way -> {
+                    nodeRefs.addAll(way.getNodeRefs());
+                });
+
+        for (int i = 0; i < ways.size() - 1; i++) {
+            ways.stream()
+                    .filter(way -> way.getStart().equals(nodeRefs.get(nodeRefs.size() - 1)))
+                    .findFirst()
+                    .ifPresent(way -> nodeRefs.addAll(way.getNodeRefsTrimStart()));
+        }
+
+        return nodeRefs;
+    }
 }

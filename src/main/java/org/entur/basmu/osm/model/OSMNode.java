@@ -16,16 +16,26 @@
 
 package org.entur.basmu.osm.model;
 
-/**
- * Copied from OpenTripPlanner - https://github.com/opentripplanner/OpenTripPlanner
- */
 public class OSMNode extends OSMWithTags {
 
-    public double lat;
-    public double lon;
+    private double lat;
+    private double lon;
 
-    public String toString() {
-        return "osm node " + id;
+    public OSMNode(long id, double lat, double lon) {
+        super(id);
+        this.lat = lat;
+        this.lon = lon;
     }
 
+    public double getLat() {
+        return lat;
+    }
+
+    public double getLon() {
+        return lon;
+    }
+
+    public String toString() {
+        return "osm node " + getId();
+    }
 }
