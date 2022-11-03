@@ -71,8 +71,8 @@ public class MappingUtil {
         }
 
         var closedRings = ways.stream()
+                .filter(OSMWay::isClosed)
                 .map(Ring::withWay)
-                .filter(Ring::isClosed)
                 .toList();
 
         if (closedRings.size() == ways.size()) {
@@ -80,8 +80,8 @@ public class MappingUtil {
         }
 
         var partialRings = ways.stream()
+                .filter(Predicate.not(OSMWay::isClosed))
                 .map(Ring::withWay)
-                .filter(Predicate.not(Ring::isClosed))
                 .collect(PartialRingsCollector());
 
         if (!isValidPartialRings(partialRings)) {
@@ -91,39 +91,9 @@ public class MappingUtil {
         List<Ring> newClosedRings = makeClosedRings(partialRings);
 
         return Stream.of(closedRings, newClosedRings).flatMap(Collection::stream).toList();
-/*
-        List<Set<Long>> sets = newClosedRings.stream()
-                .map(Ring::closeThisRing)
-                .toList();
-
-
-        return closedRings;
-
-        Ring partialRing = partialRings.keys().stream()
-                .findFirst()
-                .map(partialRings::get)
-                .map(osmWays -> osmWays.get(0))
-                .orElseThrow();
-
-//        List<Long> partialRing = firstWay.getNodeRefs().stream().toList();
-
-        partialRings.remove(partialRing.getStart(), partialRing);
-        partialRings.remove(partialRing.getEnd(), partialRing);
-
-        if (constructRingsRecursive(partialRings, partialRing, closedRings, partialRing.getStart())) {
-            return closedRings;
-        } else {
-            return Collections.emptyList();
-        }
-
- */
     }
 
     private static List<Ring> makeClosedRings(ArrayListMultimap<Long, Ring> partialRings) {
-
-        if (partialRings.keySet().size() == 1) {
-            System.out.println();
-        }
 
         List<Long> ignoreKeys = new ArrayList<>();
         List<Ring> newRings = new ArrayList<>();
@@ -133,18 +103,8 @@ public class MappingUtil {
                 continue;
             }
 
-            Ring ring = findConnections(key, partialRings, ignoreKeys, 0);
+            Ring ring = findConnections(key, partialRings, ignoreKeys);
             newRings.add(ring);
-/*            List<Ring> rings = partialRings.get(key);
-            rings.stream().findAny()
-                    .map(ring -> List.of(ring.getStart(), ring.getEnd()))
-                    .stream().flatMap(Collection::stream)
-                    .filter(endPoint -> !Objects.equals(endPoint, key))
-                    .forEach(ignoreKeys::add);
-            Ring newRing = joinRings(rings);
-            newRings.add(newRing);
-
- */
         }
 
         var closedAndPartialRings = newRings.stream().collect(Collectors.partitioningBy(Ring::isClosed));
@@ -160,7 +120,7 @@ public class MappingUtil {
         return Stream.of(remainingPartialRings, newRings).flatMap(Collection::stream).toList();
     }
 
-    private static Ring findConnections(Long key, ArrayListMultimap<Long, Ring> partialRings, List<Long> keysTaken, int call) {
+    private static Ring findConnections(Long key, ArrayListMultimap<Long, Ring> partialRings, List<Long> keysTaken) {
         List<Ring> rings = partialRings.get(key);
         Ring newRing = joinRings(rings);
         keysTaken.add(key);
@@ -171,10 +131,9 @@ public class MappingUtil {
                 .filter(endPoint -> !Objects.equals(endPoint, key))
                 .collect(Collectors.toSet());
 
-        final int calli = ++call;
         List<Ring> connectionRings = connections.stream()
                 .filter(Predicate.not(keysTaken::contains))
-                .map(connection -> findConnections(connection, partialRings, keysTaken, calli))
+                .map(connection -> findConnections(connection, partialRings, keysTaken))
                 .toList();
 
         return joinRings(Stream.of(connectionRings, List.of(newRing)).flatMap(Collection::stream).toList());
@@ -195,8 +154,7 @@ public class MappingUtil {
                         .stream().toList());
     }
 
-    private static Collector<Ring, ArrayListMultimap<Long, Ring>, ArrayListMultimap<Long, Ring>>
-    PartialRingsCollector() {
+    private static Collector<Ring, ArrayListMultimap<Long, Ring>, ArrayListMultimap<Long, Ring>> PartialRingsCollector() {
         return Collector.of(
                 ArrayListMultimap::create,
                 (map, ring) -> {

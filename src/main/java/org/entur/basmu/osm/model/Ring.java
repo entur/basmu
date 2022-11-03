@@ -1,6 +1,7 @@
 package org.entur.basmu.osm.model;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 public record Ring(List<OSMWay> ways) {
     public static Ring withWay(OSMWay osmWay) {
@@ -8,15 +9,21 @@ public record Ring(List<OSMWay> ways) {
     }
 
     public boolean isClosed() {
-        if (ways().isEmpty()) {
+        if (ways.isEmpty()) {
             return false;
         }
 
+        if (ways.size() == 1) {
+            return ways.get(0).isClosed();
+        }
+
         return ways.stream().allMatch(thisWay ->
-                ways.stream().anyMatch(thatWay ->
-                        thisWay.getEnd().equals(thatWay.getEnd())
-                        || thisWay.getEnd().equals(thatWay.getStart())
-                ));
+                ways.stream()
+                        .filter(way -> way.getId() != thisWay.getId())
+                        .anyMatch(
+                                thatWay -> thisWay.getEnd().equals(thatWay.getEnd())
+                                        || thisWay.getEnd().equals(thatWay.getStart())
+                        ));
     }
 
     public Long getStart() {
@@ -32,18 +39,36 @@ public record Ring(List<OSMWay> ways) {
             throw new RuntimeException("Ring is not closed.");
         }
 
-        List<Long> nodeRefs = new ArrayList<>();
+        List<Long> waysDone = new ArrayList<>();
+        List<Long> nodeRefs = ways.stream().findFirst()
+                .map(osmWay -> {
+                    waysDone.add(osmWay.getId());
+                    return osmWay.getNodeRefs();
+                }).stream()
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
 
-        ways.stream().findFirst()
-                .ifPresent(way -> {
-                    nodeRefs.addAll(way.getNodeRefs());
-                });
-
-        for (int i = 0; i < ways.size() - 1; i++) {
-            ways.stream()
-                    .filter(way -> way.getStart().equals(nodeRefs.get(nodeRefs.size() - 1)))
+        while (waysDone.size() != ways.size()) {
+            List<Long> refsFound = ways.stream()
+                    .filter(way -> !waysDone.contains(way.getId()))
+                    .filter(way -> nodeRefs.get(nodeRefs.size() - 1).equals(way.getStart()))
                     .findFirst()
-                    .ifPresent(way -> nodeRefs.addAll(way.getNodeRefsTrimStart()));
+                    .map(way -> {
+                        waysDone.add(way.getId());
+                        return way.getNodeRefsTrimStart();
+                    })
+                    .orElseGet(() -> ways.stream()
+                            .filter(way -> !waysDone.contains(way.getId()))
+                            .filter(way -> nodeRefs.get(nodeRefs.size() - 1).equals(way.getEnd()))
+                            .findFirst()
+                            .map(way -> {
+                                waysDone.add(way.getId());
+                                List<Long> nodeRefsTrimEnd = way.getNodeRefsTrimEnd();
+                                Collections.reverse(nodeRefsTrimEnd);
+                                return nodeRefsTrimEnd;
+                            }).orElseThrow());
+
+            nodeRefs.addAll(refsFound);
         }
 
         return nodeRefs;

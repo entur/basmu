@@ -18,6 +18,7 @@ package org.entur.basmu.osm.model;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class OSMWay extends OSMWithTags {
 
@@ -50,15 +51,18 @@ public class OSMWay extends OSMWithTags {
     }
 
     public List<Long> getNodeRefsTrimEnd() {
-        return nodeRefs.stream().limit(nodeRefs.size() - 1).toList();
+        return nodeRefs.stream().limit(nodeRefs.size() - 1).collect(Collectors.toList());
     }
 
     public List<Long> getNodeRefsTrimStart() {
-        return nodeRefs.stream().skip(1).toList();
+        return nodeRefs.stream().skip(1).collect(Collectors.toList());
     }
 
     public String toString() {
         return "osm way " + getId();
     }
 
+    public boolean isClosed() {
+        return getStart().equals(getEnd());
+    }
 }
