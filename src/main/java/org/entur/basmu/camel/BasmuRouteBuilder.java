@@ -5,6 +5,7 @@ import org.entur.basmu.blobStore.BasmuBlobStoreService;
 import org.entur.basmu.blobStore.KakkaBlobStoreService;
 import org.entur.basmu.osm.mapper.ProtoBufferToPeliasDocument;
 import org.entur.geocoder.ZipUtilities;
+import org.entur.geocoder.blobStore.BlobStoreFiles;
 import org.entur.geocoder.camel.ErrorHandlerRouteBuilder;
 import org.entur.geocoder.csv.CSVCreator;
 import org.entur.geocoder.model.PeliasDocument;
@@ -57,6 +58,7 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
     public void configure() {
 
         from("direct:makeCSV")
+                .process(this::listPOIFiles)
                 .process(this::loadPOIFile)
                 .process(this::createPeliasDocumentForPointOfInterests)
                 .process(this::createCSVFile)
@@ -67,17 +69,25 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
                 .process(exchange -> SpringApplication.exit(context, () -> 0));
     }
 
-    private void loadPOIFile(Exchange exchange) {
-        logger.debug("Loading POI file");
+    private void listPOIFiles(Exchange exchange) {
+        logger.debug("List pbf POI file");
         exchange.getIn().setBody(
-                kakkaBlobStoreService.findLatestBlob(osmFolder), // TODO: Load latest file with given extension pbf
-                InputStream.class
+                kakkaBlobStoreService.listBlobStoreFiles(osmFolder).getFiles().stream()
+                        .filter(file -> file.getName().endsWith(".pbf"))
+                        .findFirst()
+                        .orElseThrow(() -> new RuntimeException("No PBF file found")),
+                BlobStoreFiles.File.class
         );
+    }
+
+    private void loadPOIFile(Exchange exchange) {
+        BlobStoreFiles.File file = exchange.getIn().getBody(BlobStoreFiles.File.class);
+        logger.debug("Loading pbf POI file: " + file.getName());
+        exchange.getIn().setBody(kakkaBlobStoreService.getBlob(file.getName()));
     }
 
     private void createPeliasDocumentForPointOfInterests(Exchange exchange) {
         logger.debug("Converting to pelias documents.");
-
         InputStream inputStream = exchange.getIn().getBody(InputStream.class);
         exchange.getIn().setBody(pbfMapper.transform(inputStream));
     }
