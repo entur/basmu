@@ -70,7 +70,7 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
     }
 
     private void listPOIFiles(Exchange exchange) {
-        logger.debug("List pbf POI file");
+        logger.info("List pbf POI file");
         exchange.getIn().setBody(
                 kakkaBlobStoreService.listBlobStoreFiles(osmFolder).getFiles().stream()
                         .filter(file -> file.getName().endsWith(".pbf"))
@@ -82,18 +82,18 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
 
     private void loadPOIFile(Exchange exchange) {
         BlobStoreFiles.File file = exchange.getIn().getBody(BlobStoreFiles.File.class);
-        logger.debug("Loading pbf POI file: " + file.getName());
+        logger.info("Loading pbf POI file: " + file.getName());
         exchange.getIn().setBody(kakkaBlobStoreService.getBlob(file.getName()));
     }
 
     private void createPeliasDocumentForPointOfInterests(Exchange exchange) {
-        logger.debug("Converting to pelias documents.");
+        logger.info("Converting to pelias documents.");
         InputStream inputStream = exchange.getIn().getBody(InputStream.class);
         exchange.getIn().setBody(pbfMapper.transform(inputStream));
     }
 
     private void createCSVFile(Exchange exchange) {
-        logger.debug("Creating CSV file form PeliasDocuments stream");
+        logger.info("Creating CSV file form PeliasDocuments stream");
 
         @SuppressWarnings("unchecked")
         Stream<PeliasDocument> peliasDocuments = exchange.getIn().getBody(Stream.class);
@@ -108,7 +108,7 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
     }
 
     private void zipCSVFile(Exchange exchange) {
-        logger.debug("Zipping the created csv file");
+        logger.info("Zipping the created csv file");
         ByteArrayInputStream zipFile = ZipUtilities.zipFile(
                 exchange.getIn().getBody(InputStream.class),
                 exchange.getIn().getHeader(OUTPUT_FILENAME_HEADER, String.class) + ".csv"
@@ -117,7 +117,7 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
     }
 
     private void uploadCSVFile(Exchange exchange) {
-        logger.debug("Uploading the CSV file");
+        logger.info("Uploading the CSV file");
         basmuBlobStoreService.uploadBlob(
                 exchange.getIn().getHeader(OUTPUT_FILENAME_HEADER, String.class) + ".zip",
                 exchange.getIn().getBody(InputStream.class)
@@ -125,7 +125,7 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
     }
 
     private void copyCSVFileAsLatestToConfiguredBucket(Exchange exchange) {
-        logger.debug("Coping latest file to haya");
+        logger.info("Coping latest file to haya");
         String currentCSVFileName = exchange.getIn().getHeader(OUTPUT_FILENAME_HEADER, String.class) + ".zip";
         basmuBlobStoreService.copyBlobAsLatestToTargetBucket(currentCSVFileName);
     }
