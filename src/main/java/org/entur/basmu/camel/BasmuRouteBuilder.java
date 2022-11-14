@@ -26,11 +26,8 @@ public class BasmuRouteBuilder extends ErrorHandlerRouteBuilder {
 
     private static final String OUTPUT_FILENAME_HEADER = "basmuOutputFilename";
 
-    @Value("${blobstore.gcs.kakka.kartverket.addresses.folder:kartverket/addresses}")
+    @Value("${blobstore.gcs.kakka.osm.poi.folder:osm}")
     private String osmFolder;
-
-    @Value("${basmu.workdir:/tmp/basmu/geocoder}")
-    private String basmuWorkDir;
 
     private final KakkaBlobStoreService kakkaBlobStoreService;
     private final BasmuBlobStoreService basmuBlobStoreService;

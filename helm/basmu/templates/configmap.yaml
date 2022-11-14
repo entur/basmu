@@ -4,7 +4,7 @@ data:
   application.properties: |+
     blobstore.gcs.basmu.bucket.name=${BUCKET_NAME}
     blobstore.gcs.kakka.bucket.name={{ .Values.gcs.kakka.bucketName }}
-    blobstore.gcs.kakka.kartverket.addresses.folder=kartverket/addresses
+    blobstore.gcs.kakka.osm.poi.folder=osm
     blobstore.gcs.haya.bucket.name={{ .Values.gcs.haya.bucketName }}
     blobstore.gcs.haya.latest.filename_without_extension=basmu_latest
     blobstore.gcs.haya.import.folder=import
