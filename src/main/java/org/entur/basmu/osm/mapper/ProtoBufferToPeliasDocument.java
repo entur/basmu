@@ -17,6 +17,7 @@ import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 public class ProtoBufferToPeliasDocument {
@@ -45,13 +46,13 @@ public class ProtoBufferToPeliasDocument {
         }
     }
 
-    public Collection<PeliasDocument> transform(InputStream poiStream) {
+    public Stream<PeliasDocument> transform(InputStream poiStream) {
         try {
             List<OSMPOIFilter> osmPoiFilters = osmpoiFilterService.getFilters();
             File tmpPoiFile = getFile(poiStream);
             BlockingQueue<PeliasDocument> queue = new LinkedBlockingDeque<>();
             addToQueue(queue, tmpPoiFile, osmPoiFilters);
-            return new ArrayList<>(queue);
+            return queue.stream();
         } catch (Exception ex) {
             throw new RuntimeException(ex);
         }
