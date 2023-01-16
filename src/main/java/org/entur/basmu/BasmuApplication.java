@@ -1,28 +1,50 @@
 package org.entur.basmu;
 
-import org.apache.camel.CamelContext;
-import org.apache.camel.FluentProducerTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
+import org.springframework.retry.annotation.EnableRetry;
+
+import java.io.InputStream;
+import java.util.stream.Stream;
 
 @SpringBootApplication
-public class BasmuApplication {
+@EnableRetry
+public class BasmuApplication implements ApplicationRunner {
 
-    private final CamelContext camelContext;
+    private static final Logger logger = LoggerFactory.getLogger(BasmuApplication.class);
 
-    public BasmuApplication(CamelContext camelContext) {
-        this.camelContext = camelContext;
+    private final BasmuService bs;
+
+    public BasmuApplication(BasmuService bs) {
+        this.bs = bs;
     }
 
     public static void main(String[] args) {
         SpringApplication.run(BasmuApplication.class, args);
     }
 
-    @EventListener(ApplicationReadyEvent.class)
-    public void doSomethingAfterStartup() {
-        FluentProducerTemplate fluentProducerTemplate = camelContext.createFluentProducerTemplate();
-        fluentProducerTemplate.to("direct:makeCSV").request();
+    @Override
+    public void run(ApplicationArguments args) {
+        Stream.of(bs.findPbfPoiFile())
+                .map(bs::loadPbfPoiFile)
+                .map(bs::createPeliasDocumentForPointOfInterests)
+                .map(bs::createCSVFile)
+                .findFirst()
+                .ifPresentOrElse(
+                        this::zipAndUploadCSVFile,
+                        () -> logger.info("No or empty pbf file found.")
+                );
+    }
+
+    private void zipAndUploadCSVFile(InputStream inputStream) {
+        String outputFilename = bs.getOutputFilename();
+        InputStream csvZipFile = bs.zipCSVFile(inputStream, outputFilename);
+        bs.uploadCSVFile(csvZipFile, outputFilename);
+        bs.copyCSVFileAsLatestToConfiguredBucket(outputFilename);
+        logger.info("Uploaded zipped csv files to basmu and haya");
     }
 }
