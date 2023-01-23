@@ -1,5 +1,6 @@
 package org.entur.basmu;
 
+import org.apache.tomcat.jni.Directory;
 import org.entur.basmu.blobStore.BasmuBlobStoreService;
 import org.entur.basmu.blobStore.KakkaBlobStoreService;
 import org.entur.basmu.osm.mapper.ProtoBufferToPeliasDocument;
@@ -14,7 +15,13 @@ import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.stream.Stream;
 
 @Service
@@ -24,6 +31,9 @@ public class BasmuService {
 
     @Value("${blobstore.gcs.kakka.osm.poi.folder:osm}")
     private String osmFolder;
+
+    @Value("${basmu.workdir:/tmp/basmu/geocoder}")
+    private String basmuWorkDir;
 
     private final KakkaBlobStoreService kakkaBlobStoreService;
     private final BasmuBlobStoreService basmuBlobStoreService;
@@ -59,8 +69,31 @@ public class BasmuService {
                     delayExpression = "${basmu.retry.maxDelay:5000}",
                     multiplierExpression = "${basmu.retry.backoff.multiplier:3}"))
     protected InputStream loadPbfPoiFile(BlobStoreFiles.File file) {
+        createWorkingDirectory();
         logger.info("Loading pbf POI file: " + file.getName());
-        return kakkaBlobStoreService.getBlob(file.getName());
+        File targetFile = new File(basmuWorkDir + "/" + file.getFileNameOnly());
+        try (InputStream blob = kakkaBlobStoreService.getBlob(file.getName())) {
+            Files.copy(
+                    blob,
+                    targetFile.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING);
+            return new FileInputStream(targetFile);
+        } catch (Exception ex) {
+            throw new RuntimeException(ex);
+        }
+    }
+
+    protected void createWorkingDirectory() {
+        logger.info("Creating work directory " + basmuWorkDir);
+
+        try {
+            File workDirectory = new File(basmuWorkDir);
+            if (!workDirectory.exists()) {
+                Files.createDirectories(Paths.get(basmuWorkDir));
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to create working directory");
+        }
     }
 
     protected Stream<PeliasDocument> createPeliasDocumentForPointOfInterests(InputStream inputStream) {
