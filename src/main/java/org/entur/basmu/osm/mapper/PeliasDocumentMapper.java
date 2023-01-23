@@ -4,6 +4,7 @@ import org.entur.basmu.osm.domain.OSMPOIFilter;
 import org.entur.basmu.osm.model.OSMWithTags;
 import org.entur.geocoder.model.GeoPoint;
 import org.entur.geocoder.model.PeliasDocument;
+import org.entur.geocoder.model.PeliasId;
 import org.springframework.util.CollectionUtils;
 
 import java.util.Collections;
@@ -23,7 +24,9 @@ public class PeliasDocumentMapper {
     private final List<String> typeFilter;
     private final List<OSMPOIFilter> osmPoiFilters;
 
-    public PeliasDocumentMapper(long popularity, List<String> typeFilter, List<OSMPOIFilter> osmPoiFilters) {
+    public PeliasDocumentMapper(long popularity,
+                                List<String> typeFilter,
+                                List<OSMPOIFilter> osmPoiFilters) {
         this.popularity = popularity;
         this.typeFilter = typeFilter;
         this.osmPoiFilters = osmPoiFilters;
@@ -33,8 +36,7 @@ public class PeliasDocumentMapper {
      * TODO: Kan dette gjøres nå ???
      * Map single place hierarchy to (potentially) multiple pelias documents, one per alias/alternative name.
      * Pelias does not yet support queries in multiple languages / for aliases.
-     * When support for this is ready this mapping should be refactored to produce
-     * a single document per place hierarchy.
+     * When support for this is ready this mapping should be refactored to produce a single document per place hierarchy.
      */
     public List<PeliasDocument> map(OSMWithTags entity, GeoPoint centroid) {
         if (!isFilterMatch(entity)) {
@@ -54,12 +56,10 @@ public class PeliasDocumentMapper {
         return DEFAULT_SOURCE + ":PlaceOfInterest:" + entityId + idSuffix;
     }
 
-    private PeliasDocument createPeliasDocument(String entityId,
-                                                LanguageString name,
-                                                GeoPoint centroid,
-                                                OSMWithTags entity) {
+    private PeliasDocument createPeliasDocument(String entityId, LanguageString name,
+                                                GeoPoint centroid, OSMWithTags entity) {
 
-        PeliasDocument document = new PeliasDocument(DEFAULT_LAYER, DEFAULT_SOURCE, entityId);
+        PeliasDocument document = new PeliasDocument(new PeliasId(DEFAULT_SOURCE, DEFAULT_LAYER, entityId));
 
         document.setDefaultName(name.value());
         document.setCenterPoint(centroid);
@@ -79,7 +79,6 @@ public class PeliasDocumentMapper {
      */
     private static void setDisplayName(PeliasDocument document, OSMWithTags entity) {
         LanguageString displayName = getDisplayName(entity);
-        document.setDisplayName(displayName.value());
         document.addAlternativeName(displayName.language(), displayName.value());
     }
 
@@ -87,7 +86,8 @@ public class PeliasDocumentMapper {
         List<LanguageString> alternativeDescriptors = mapAlternativeDescriptors(entity);
         alternativeDescriptors.stream()
                 .filter(alternativeDescriptor -> alternativeDescriptor.language() != null)
-                .forEach(alternativeDescriptor -> document.addAlternativeName(alternativeDescriptor.language(), alternativeDescriptor.value()));
+                .forEach(alternativeDescriptor ->
+                        document.addAlternativeName(alternativeDescriptor.language(), alternativeDescriptor.value()));
     }
 
     private void addPOICategories(PeliasDocument document, Map<String, String> osmTags) {
