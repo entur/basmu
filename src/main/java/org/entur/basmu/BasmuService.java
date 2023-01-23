@@ -1,6 +1,5 @@
 package org.entur.basmu;
 
-import org.apache.tomcat.jni.Directory;
 import org.entur.basmu.blobStore.BasmuBlobStoreService;
 import org.entur.basmu.blobStore.KakkaBlobStoreService;
 import org.entur.basmu.osm.mapper.ProtoBufferToPeliasDocument;
