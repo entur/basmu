@@ -1,22 +1,6 @@
-/*
- * Licensed under the EUPL, Version 1.2 or – as soon they will be approved by
- * the European Commission - subsequent versions of the EUPL (the "Licence");
- * You may not use this work except in compliance with the Licence.
- * You may obtain a copy of the Licence at:
- *
- *   https://joinup.ec.europa.eu/software/page/eupl
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the Licence is distributed on an "AS IS" basis,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the Licence for the specific language governing permissions and
- * limitations under the Licence.
- *
- */
-
 package org.entur.basmu.osm.mapper;
 
-import org.entur.basmu.osm.domain.OSMPOIFilter;
+import org.entur.basmu.osm.domain.PointOfInterestFilter;
 import org.entur.basmu.osm.model.*;
 import org.entur.geocoder.model.GeoPoint;
 import org.entur.geocoder.model.PeliasDocument;
@@ -41,7 +25,7 @@ public class ProtoBufferContentHandler {
     private static final String TAG_NAME = "name";
 
     private final BlockingQueue<PeliasDocument> peliasDocumentQueue;
-    private final List<OSMPOIFilter> osmPoiFilters;
+    private final List<PointOfInterestFilter> pointOfInterestFilters;
     private final Map<Long, OSMNode> nodesMapForWays = new HashMap<>();
 
     private final Set<Long> nodeRefsForWays = new HashSet<>();
@@ -57,12 +41,12 @@ public class ProtoBufferContentHandler {
     private boolean gatherNodesUsedInWaysPhase = true;
 
     public ProtoBufferContentHandler(BlockingQueue<PeliasDocument> peliasDocumentQueue,
-                                     List<OSMPOIFilter> osmPoiFilters,
+                                     List<PointOfInterestFilter> pointOfInterestFilters,
                                      long poiBoost,
                                      List<String> poiFilter) {
         this.peliasDocumentQueue = peliasDocumentQueue;
-        this.osmPoiFilters = osmPoiFilters;
-        this.peliasDocumentMapper = new PeliasDocumentMapper(poiBoost, poiFilter, osmPoiFilters);
+        this.pointOfInterestFilters = pointOfInterestFilters;
+        this.peliasDocumentMapper = new PeliasDocumentMapper(poiBoost, poiFilter, pointOfInterestFilters);
     }
 
     public void doneSecondPhaseWays() {
@@ -186,15 +170,9 @@ public class ProtoBufferContentHandler {
             return false;
         }
 
-        for (Map.Entry<String, String> tag : entity.getTags().entrySet()) {
-            if (osmPoiFilters.stream()
-                    .anyMatch(filter ->
-                            tag.getKey().equals(filter.key())
-                                    && tag.getValue().startsWith(filter.value()))) {
-                return true;
-            }
-        }
-        return false;
+        return pointOfInterestFilters.stream()
+                .filter(poiFilter -> entity.getTags().containsKey(poiFilter.key()))
+                .anyMatch(poiFilter -> poiFilter.getTagWithName(entity.getTags().get(poiFilter.key())) != null);
     }
 
     private GeoPoint getCentroid(OSMWay osmWay) {

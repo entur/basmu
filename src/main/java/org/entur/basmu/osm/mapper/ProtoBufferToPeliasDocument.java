@@ -2,12 +2,10 @@ package org.entur.basmu.osm.mapper;
 
 import crosby.binary.file.BlockInputStream;
 import org.apache.commons.io.IOUtils;
-import org.entur.basmu.osm.domain.OSMPOIFilter;
-import org.entur.basmu.osm.service.OSMPOIFilterService;
+import org.entur.basmu.osm.domain.PointOfInterestFilter;
 import org.entur.geocoder.model.PeliasDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.ObjectUtils;
@@ -24,16 +22,12 @@ public class ProtoBufferToPeliasDocument {
 
     public static final Logger logger = LoggerFactory.getLogger(ProtoBufferToPeliasDocument.class);
 
-    private final OSMPOIFilterService osmpoiFilterService;
-
     private final long poiBoost;
 
     private final List<String> poiFilter;
 
-    public ProtoBufferToPeliasDocument(@Autowired OSMPOIFilterService osmpoiFilterService,
-                                       @Value("${pelias.poi.boost:1}") long poiBoost,
+    public ProtoBufferToPeliasDocument(@Value("${pelias.poi.boost:1}") long poiBoost,
                                        @Value("#{'${pelias.poi.filter:}'.split(',')}") List<String> poiFilter) {
-        this.osmpoiFilterService = osmpoiFilterService;
         this.poiBoost = poiBoost;
         if (poiFilter != null) {
             this.poiFilter = poiFilter.stream()
@@ -46,20 +40,19 @@ public class ProtoBufferToPeliasDocument {
         }
     }
 
-    public Stream<PeliasDocument> transform(InputStream poiStream) {
+    public Stream<PeliasDocument> transform(InputStream poiStream, List<PointOfInterestFilter> pointOfInterestFilters) {
         try {
-            List<OSMPOIFilter> osmPoiFilters = osmpoiFilterService.getFilters();
             File tmpPoiFile = getFile(poiStream);
             BlockingQueue<PeliasDocument> queue = new LinkedBlockingDeque<>();
-            addToQueue(queue, tmpPoiFile, osmPoiFilters);
+            addToQueue(queue, tmpPoiFile, pointOfInterestFilters);
             return queue.stream();
         } catch (Exception ex) {
             throw new RuntimeException(ex);
         }
     }
 
-    public void addToQueue(BlockingQueue<PeliasDocument> queue, File file, List<OSMPOIFilter> osmPoiFilters) throws IOException {
-        ProtoBufferContentHandler contentHandler = new ProtoBufferContentHandler(queue, osmPoiFilters, poiBoost, poiFilter);
+    public void addToQueue(BlockingQueue<PeliasDocument> queue, File file, List<PointOfInterestFilter> pointOfInterestFilters) throws IOException {
+        ProtoBufferContentHandler contentHandler = new ProtoBufferContentHandler(queue, pointOfInterestFilters, poiBoost, poiFilter);
         BinaryOpenStreetMapParser parser = new BinaryOpenStreetMapParser(contentHandler);
 
         //Parse relations to collect ways first
