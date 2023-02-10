@@ -2,7 +2,9 @@ package org.entur.basmu;
 
 import org.entur.basmu.blobStore.BasmuBlobStoreService;
 import org.entur.basmu.blobStore.KakkaBlobStoreService;
+import org.entur.basmu.osm.domain.PointOfInterestFilter;
 import org.entur.basmu.osm.mapper.ProtoBufferToPeliasDocument;
+import org.entur.basmu.osm.service.OSMPOIFilterService;
 import org.entur.geocoder.ZipUtilities;
 import org.entur.geocoder.blobStore.BlobStoreFiles;
 import org.entur.geocoder.csv.CSVCreator;
@@ -21,6 +23,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
 import java.util.stream.Stream;
 
 @Service
@@ -36,15 +39,30 @@ public class BasmuService {
 
     private final KakkaBlobStoreService kakkaBlobStoreService;
     private final BasmuBlobStoreService basmuBlobStoreService;
+    private final OSMPOIFilterService osmpoiFilterService;
+
     private final ProtoBufferToPeliasDocument pbfMapper;
 
     public BasmuService(
             KakkaBlobStoreService kakkaBlobStoreService,
             BasmuBlobStoreService basmuBlobStoreService,
+            OSMPOIFilterService osmpoiFilterService,
             ProtoBufferToPeliasDocument pbfMapper) {
         this.kakkaBlobStoreService = kakkaBlobStoreService;
         this.basmuBlobStoreService = basmuBlobStoreService;
+        this.osmpoiFilterService = osmpoiFilterService;
         this.pbfMapper = pbfMapper;
+    }
+
+    @Retryable(
+            value = Exception.class,
+            maxAttemptsExpression = "${basmu.retry.maxAttempts:3}",
+            backoff = @Backoff(
+                    delayExpression = "${basmu.retry.maxDelay:5000}",
+                    multiplierExpression = "${basmu.retry.backoff.multiplier:3}"))
+    protected List<PointOfInterestFilter> getPoiFilters() {
+        logger.info("Loading the POI filters");
+        return osmpoiFilterService.getFilters();
     }
 
     @Retryable(
@@ -95,9 +113,10 @@ public class BasmuService {
         }
     }
 
-    protected Stream<PeliasDocument> createPeliasDocumentForPointOfInterests(InputStream inputStream) {
+    protected Stream<PeliasDocument> createPeliasDocumentForPointOfInterests(InputStream inputStream,
+                                                                             List<PointOfInterestFilter> pointOfInterestFilters) {
         logger.info("Converting to pelias documents");
-        return pbfMapper.transform(inputStream);
+        return pbfMapper.transform(inputStream, pointOfInterestFilters);
     }
 
     protected InputStream createCSVFile(Stream<PeliasDocument> peliasDocuments) {

@@ -14,6 +14,7 @@ data:
     basmu.retry.maxAttempts=3
     basmu.retry.maxDelay=5000
     basmu.retry.backoff.multiplier=3
+    osmpoifilters.service.url={{ .Values.osmpoifilters.service.url }}
 metadata:
   name: {{ template "basmu.name" . }}-config
   namespace: {{ template "basmu.name" . }}

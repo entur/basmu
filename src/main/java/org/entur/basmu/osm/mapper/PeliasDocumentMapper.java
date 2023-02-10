@@ -1,16 +1,14 @@
 package org.entur.basmu.osm.mapper;
 
-import org.entur.basmu.osm.domain.OSMPOIFilter;
+import org.entur.basmu.osm.domain.PointOfInterestFilter;
+import org.entur.basmu.osm.domain.Tag;
 import org.entur.basmu.osm.model.OSMWithTags;
 import org.entur.geocoder.model.GeoPoint;
 import org.entur.geocoder.model.PeliasDocument;
 import org.entur.geocoder.model.PeliasId;
 import org.springframework.util.CollectionUtils;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -18,18 +16,18 @@ public class PeliasDocumentMapper {
 
     private static final String OSM_TAG_NAME = "name";
     private static final String DEFAULT_SOURCE = "osm";
-    public static final String DEFAULT_LAYER = "pointOfInterest";
+    private static final String DEFAULT_LAYER = "pointOfInterest";
 
     private final long popularity;
     private final List<String> typeFilter;
-    private final List<OSMPOIFilter> osmPoiFilters;
+    private final List<PointOfInterestFilter> pointOfInterestFilters;
 
     public PeliasDocumentMapper(long popularity,
                                 List<String> typeFilter,
-                                List<OSMPOIFilter> osmPoiFilters) {
+                                List<PointOfInterestFilter> pointOfInterestFilters) {
         this.popularity = popularity;
         this.typeFilter = typeFilter;
-        this.osmPoiFilters = osmPoiFilters;
+        this.pointOfInterestFilters = pointOfInterestFilters;
     }
 
     /**
@@ -92,23 +90,22 @@ public class PeliasDocumentMapper {
 
     private void addPOICategories(PeliasDocument document, Map<String, String> osmTags) {
         document.addCategory("poi");
-        osmTags.entrySet().stream()
-                .filter(tagEntry -> osmPoiFilters.stream()
-                        .anyMatch(poiFilter -> tagEntry.getKey().equals(poiFilter.key())
-                                && tagEntry.getValue().equals(poiFilter.value())
-                        ))
-                .map(Map.Entry::getValue)
+        pointOfInterestFilters.stream()
+                .filter(poiFilter -> osmTags.containsKey(poiFilter.key()))
+                .map(poiFilter -> poiFilter.getTagWithName(osmTags.get(poiFilter.key())))
+                .filter(Objects::nonNull)
+                .map(Tag::name)
                 .forEach(document::addCategory);
     }
 
     private int getPopularityBoost(Map<String, String> osmTags) {
-        return osmPoiFilters.stream()
-                .filter(poiFilter -> osmTags.entrySet().stream()
-                        .anyMatch(key -> key.getKey().equals(poiFilter.key())
-                                && key.getValue().equals(poiFilter.value())))
-                .max(OSMPOIFilter::sort)
-                .map(OSMPOIFilter::priority)
-                .orElse(1);
+
+        return pointOfInterestFilters.stream()
+                .filter(poiFilter -> osmTags.containsKey(poiFilter.key()))
+                .map(poiFilter -> poiFilter.getTagWithName(osmTags.get(poiFilter.key())))
+                .filter(Objects::nonNull)
+                .mapToInt(Tag::priority)
+                .max().orElse(1);
     }
 
     private static Set<LanguageString> getNames(OSMWithTags entity) {

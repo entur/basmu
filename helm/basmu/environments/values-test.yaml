@@ -6,3 +6,7 @@ gcs:
     bucketName: kakka-test
   haya:
     bucketName: ent-gcs-haya-tst-001
+
+osmpoifilters:
+  service:
+    url: https://api.staging.entur.io/osmpoifilters

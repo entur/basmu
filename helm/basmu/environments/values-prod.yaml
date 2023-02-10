@@ -6,3 +6,7 @@ gcs:
     bucketName: kakka-production
   haya:
     bucketName: ent-gcs-haya-prd-001
+
+osmpoifilters:
+  service:
+    url: https://api.entur.io/osmpoifilters

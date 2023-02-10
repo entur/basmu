@@ -1,5 +1,6 @@
 package org.entur.basmu;
 
+import org.entur.basmu.osm.domain.PointOfInterestFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -9,6 +10,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.retry.annotation.EnableRetry;
 
 import java.io.InputStream;
+import java.util.List;
 import java.util.stream.Stream;
 
 @SpringBootApplication
@@ -29,9 +31,12 @@ public class BasmuApplication implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+
+        List<PointOfInterestFilter> poiFilters = bs.getPoiFilters();
+
         Stream.of(bs.findPbfPoiFile())
                 .map(bs::loadPbfPoiFile)
-                .map(bs::createPeliasDocumentForPointOfInterests)
+                .map(inputStream -> bs.createPeliasDocumentForPointOfInterests(inputStream, poiFilters))
                 .map(bs::createCSVFile)
                 .findFirst()
                 .ifPresentOrElse(
